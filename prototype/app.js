@@ -113,20 +113,20 @@ function dayLabel(ix){
 
 const daySlots = {
   [TODAY_IX]: [
-    { act:'Gym',   c:'var(--gym)',   t:'6:00 PM–10:00 PM', note:'leg day — posted as a range', posted:'Everyone', range:true },
-    { act:'Study', c:'var(--study)', t:'2:00 PM–4:00 PM',  note:'BIO120 review', posted:'Only me', range:false },
+    { act:'Gym',   c:'var(--gym)',   t:'6:00 PM–10:00 PM', note:'leg day — posted as a range', posted:'Everyone', range:true, tags:['Legs'] },
+    { act:'Study', c:'var(--study)', t:'2:00 PM–4:00 PM',  note:'BIO120 review', posted:'Only me', range:false, tags:['Review'] },
   ],
   [TODAY_IX + 1]: [
-    { act:'Run', c:'var(--run)', t:'9:00 AM–11:00 AM', note:'easy 5k, open invite', posted:'Close friends', range:true },
+    { act:'Run', c:'var(--run)', t:'9:00 AM–11:00 AM', note:'easy 5k, open invite', posted:'Close friends', range:true, tags:['Long'] },
   ],
   [TODAY_IX + 2]: [
     { act:'Event', c:'var(--amber)', t:'7:00 PM', note:'Football game — big event', posted:'Everyone', range:false, event:true },
   ],
   [TODAY_IX + 3]: [
-    { act:'Gym',  c:'var(--gym)',  t:'6:00 PM–8:00 PM', note:'back + pull day', posted:'Gym crew', range:false },
+    { act:'Gym',  c:'var(--gym)',  t:'6:00 PM–8:00 PM', note:'back + pull day', posted:'Gym crew', range:false, tags:['Back'] },
   ],
   [TODAY_IX + 4]: [
-    { act:'Swim', c:'var(--swim)', t:'7:00 AM–8:00 AM', note:'laps at the YMCA', posted:'Close friends', range:false },
+    { act:'Swim', c:'var(--swim)', t:'7:00 AM–8:00 AM', note:'laps at the YMCA', posted:'Close friends', range:false, tags:['Distance'] },
   ],
 };
 
@@ -174,7 +174,7 @@ function drawSlots(){
     el.innerHTML =
       `<div class="stripe"></div>` +
       `<button class="doneb" title="Mark done — logs it everywhere" aria-label="Mark done">✓</button>` +
-      `<div style="flex:1"><div class="t">${s.act} · <span class="mono">${s.t}</span></div>` +
+      `<div style="flex:1"><div class="t">${s.act}${(s.tags && s.tags.length) ? ' · ' + s.tags.join(' + ') : ''} · <span class="mono">${s.t}</span></div>` +
       `<div class="body"><div class="sub">${s.note}</div><div class="meta">` +
       `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div></div></div>` +
       `<span class="chev">▾</span>` +
@@ -185,7 +185,8 @@ function drawSlots(){
       e.stopPropagation();
       if (s.done) { s.done = false; drawSlots(); return; }
       s.done = true;
-      logActivity(s.act, [], 'from your schedule');
+      const tags = (s.tags && s.tags.length) ? s.tags : inferTags(s.act, s.note);
+      logActivity(s.act, tags, 'from your schedule');
       burst(e.clientX, e.clientY, 26);
       drawSlots();
     };
@@ -279,10 +280,30 @@ function fmtT(v){
   s.value = ix ? 22 : 18; /* default 6 PM – 10 PM */
 });
 
+let compSel = [];
+function drawCompSubs(){
+  const row = $('#c-subs');
+  const opts = LOG_DETAILS[curAct ? curAct.n : ''] || [];
+  $('#c-subrow').style.display = opts.length ? 'flex' : 'none';
+  row.innerHTML = '';
+  opts.forEach(d => {
+    const b = document.createElement('button');
+    b.textContent = d;
+    b.style.setProperty('--c', curAct.c);
+    b.classList.toggle('on', compSel.includes(d));
+    b.onclick = () => {
+      compSel = compSel.includes(d) ? compSel.filter(x => x !== d) : [...compSel, d];
+      drawCompSubs();
+    };
+    row.appendChild(b);
+  });
+}
 function openComposer(a){
   curAct = a;
+  compSel = [];
   $('#composer').style.display = 'block';
   $('#composer-title').textContent = 'Plan: ' + a.n;
+  drawCompSubs();
   $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
 }
 function hideComposer(){ $('#composer').style.display = 'none'; }
@@ -305,6 +326,7 @@ function postPlan(){
     act: curAct.n, c: curAct.c,
     t: type === 'ask' ? 'anytime' : `${fmtT(f)}–${fmtT(t)}`,
     note, posted: aud, range: type !== 'ask',
+    tags: [...compSel],
   });
   curAct.uses++;                                   /* usage count drives chip order */
   store('cb_acts', acts);
@@ -330,6 +352,20 @@ function slotTags(s){
     event: s.event || /game|match|tournament|race|meet|final|tryout/.test(txt),
   };
 }
+/* map a free-text note to sub-group tags when none were picked at plan time */
+const TAG_HINTS = [
+  [/leg|squat|lunge/i, 'Gym', 'Legs'], [/chest|bench/i, 'Gym', 'Chest'],
+  [/back|pull|row|lat|deadlift/i, 'Gym', 'Back'], [/arm|bicep|tricep|curl/i, 'Gym', 'Arms'],
+  [/shoulder|delt/i, 'Gym', 'Shoulders'], [/core|abs/i, 'Gym', 'Core'],
+  [/sprint/i, 'Run', 'Sprint'], [/tempo/i, 'Run', 'Tempo'], [/long|5k|10k|easy/i, 'Run', 'Long'],
+  [/sprint/i, 'Swim', 'Sprint'], [/lap|distance|400|800/i, 'Swim', 'Distance'], [/technique|drill/i, 'Swim', 'Technique'],
+  [/review/i, 'Study', 'Review'], [/group/i, 'Study', 'Group'], [/deep|exam|bio|math|chem/i, 'Study', 'Deep work'],
+];
+function inferTags(act, note){
+  const tags = TAG_HINTS.filter(([re, a]) => a === act && re.test(note)).map(([,,t]) => t);
+  return [...new Set(tags)];
+}
+
 function dayName(ix){
   if (ix === TODAY_IX) return 'today';
   if (ix === TODAY_IX + 1) return 'tomorrow';
