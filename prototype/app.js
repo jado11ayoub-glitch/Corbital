@@ -557,6 +557,13 @@ function drawFreq(){
 
 /* ---------- universal workout logger ----------
    One log → weekly chart + all-time stats + matching performance cards. */
+/* optional specifics per activity — shown one block per selected sub-section */
+const SPEC_FIELDS = {
+  Gym:   [['ex','Exercise','bench, squat…'], ['wt','Weight (lb)','135'], ['sets','Sets','3'], ['reps','Reps','8']],
+  Run:   [['dist','Distance (km)','5'], ['spr','Sprints ×','8'], ['pace','Pace / speed','5:10 /km'], ['time','Time (min)','26']],
+  Swim:  [['dist','Distance (m)','400'], ['laps','Laps','16'], ['time','Time (min)','8.5'], ['stroke','Stroke','free']],
+  Study: [['subj','Subject','BIO120'], ['time','Duration (min)','90'], ['scope','Pages / topics','ch. 8']],
+};
 const LOG_DETAILS = {
   Gym:   ['Chest','Back','Arms','Shoulders','Legs','Core'],
   Run:   ['Sprint','Tempo','Long'],
@@ -595,7 +602,33 @@ function drawLogger(){
     };
     dr.appendChild(b);
   });
+  drawSpecs();
   drawLogbook();
+}
+
+function drawSpecs(){
+  const box = $('#log-specs');
+  const cur = acts.find(a => a.n === logAct);
+  const fields = SPEC_FIELDS[logAct] || [['note','Details','anything worth remembering']];
+  /* keep whatever was already typed when re-rendering */
+  const prev = {};
+  box.querySelectorAll('.specblock').forEach(bl => {
+    prev[bl.dataset.tag] = {};
+    bl.querySelectorAll('input').forEach(i => { prev[bl.dataset.tag][i.dataset.k] = i.value; });
+  });
+  box.innerHTML = '';
+  logSel.forEach(tag => {
+    const bl = document.createElement('div');
+    bl.className = 'specblock';
+    bl.dataset.tag = tag;
+    bl.style.setProperty('--c', cur ? cur.c : 'var(--other)');
+    bl.innerHTML = `<div class="sh">${tag} <span class="opt">specifics — optional</span></div>` +
+      `<div class="specfields">` +
+      fields.map(([k, label, ph]) =>
+        `<label>${label}<input data-k="${k}" placeholder="${ph}" value="${(prev[tag] && prev[tag][k]) || ''}"></label>`
+      ).join('') + `</div>`;
+    box.appendChild(bl);
+  });
 }
 
 function drawLogbook(){
@@ -606,7 +639,8 @@ function drawLogbook(){
 }
 
 /* fan-out core: called by the logger AND by checking off a planned slot */
-function logActivity(actName, tags, sourceNote){
+function logActivity(actName, tags, sourceNote, specs){
+  specs = specs || {};
   const a = acts.find(x => x.n === actName);
   const color = a ? a.c : 'var(--other)';
   const hit = ['this week','all-time stats'];
@@ -614,22 +648,49 @@ function logActivity(actName, tags, sourceNote){
   if (series) series.v[3] = Math.min(7, series.v[3] + 1);
   bumpTotals(actName, color);
   if (actName === 'Gym' && tags.includes('Chest')) {
-    benchPts.push({ x: benchPts[benchPts.length - 1].x + 3, y: benchPts[benchPts.length - 1].y + 1 });
-    drawBench();
-    hit.push('bench trend');
+    const sp = specs['Chest'] || {};
+    const isBench = !sp.ex || /bench/i.test(sp.ex);
+    if (isBench) {
+      const reps = parseInt(sp.reps, 10);
+      benchPts.push({ x: benchPts[benchPts.length - 1].x + 3,
+                      y: reps > 0 ? reps : benchPts[benchPts.length - 1].y + 1 });
+      drawBench();
+      hit.push(reps > 0 ? `bench trend (${reps} reps logged)` : 'bench trend');
+    }
   }
   if (actName === 'Swim' && (tags.includes('Distance') || tags.includes('Sprint'))) {
     swimPts.push({ x: swimPts[swimPts.length - 1].x + 4, y: Math.max(7, swimPts[swimPts.length - 1].y - 0.2) });
     drawSwim();
     hit.push('swim trend');
   }
-  logbook.unshift({ act: actName, c: color, tags: tags.length ? tags : [sourceNote || 'Session'], when:'Just now' });
+  const tagLine = tags.length
+    ? tags.map(t => specs[t] ? specText(t, specs[t]) : t)
+    : [sourceNote || 'Session'];
+  logbook.unshift({ act: actName, c: color, tags: tagLine, when:'Just now' });
   drawFreq(); drawTotals(); drawLogbook();
   toast(`Logged ${actName}${tags.length ? ' · ' + tags.join(', ') : ''} → ${hit.join(' + ')} ✓`);
 }
 
+function collectSpecs(){
+  const specs = {};
+  $('#log-specs').querySelectorAll('.specblock').forEach(bl => {
+    const vals = {};
+    bl.querySelectorAll('input').forEach(i => { if (i.value.trim()) vals[i.dataset.k] = i.value.trim(); });
+    if (Object.keys(vals).length) specs[bl.dataset.tag] = vals;
+  });
+  return specs;
+}
+function specText(tag, v){
+  if (!v) return tag;
+  if (logAct === 'Gym' || v.ex) {
+    return `${tag}: ${[v.ex, v.wt && v.wt + ' lb', v.sets && v.reps ? v.sets + '×' + v.reps : (v.reps && v.reps + ' reps')].filter(Boolean).join(' ')}`.trim();
+  }
+  return `${tag}: ` + Object.values(v).join(' · ');
+}
+
 function logWorkout(){
-  logActivity(logAct, logSel);
+  const specs = collectSpecs();
+  logActivity(logAct, logSel, null, specs);
   logSel = [];
   drawLogger();
   const btn = document.querySelector('.logcard .btn.primary');
