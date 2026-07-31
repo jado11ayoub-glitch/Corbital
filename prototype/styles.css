@@ -237,8 +237,6 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .rec .ic{flex:none;font-size:16px}
 
 /* ============ v4 additions ============ */
-/* livelier surface: thin multicolor ribbon on top of the page */
-.ribbon{height:4px;background:linear-gradient(90deg,var(--gym),var(--amber),var(--brand),var(--swim),var(--run),var(--study),var(--pink));border-radius:0 0 3px 3px}
 /* per-tab accent colors */
 .tab[data-t="schd"].on{border-bottom-color:var(--brand)}
 .tab[data-t="frds"].on{border-bottom-color:var(--gym)}
@@ -282,3 +280,10 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 @media (prefers-reduced-motion:reduce){.card.celebrate{animation:none}.slot .chev,.rec .chev{transition:none}}
 /* small corner icon button */
 .iconbtn.sm{width:28px;height:28px;font-size:14px;color:var(--ink2)}
+
+/* ============ v5 additions ============ */
+/* FRDS: activity-colored cards, consistent with SCHD slots */
+.post{border-left:4px solid var(--c,var(--line));background:color-mix(in srgb, var(--c,var(--surface)) 4%, var(--surface))}
+.post .actbadge{margin-left:auto;font-weight:800;font-size:14px;letter-spacing:.01em;color:var(--c,var(--ink));background:color-mix(in srgb, var(--c,var(--ink)) 12%, var(--surface));padding:4px 12px;border-radius:999px;flex:none}
+.post .kind{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--ink3);text-transform:uppercase}
+.post .subact{font-size:13px;color:var(--ink2)}

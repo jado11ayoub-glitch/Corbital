@@ -119,6 +119,9 @@ const daySlots = {
   [TODAY_IX + 1]: [
     { act:'Run', c:'var(--run)', t:'9:00 AM–11:00 AM', note:'easy 5k, open invite', posted:'Close friends', range:true },
   ],
+  [TODAY_IX + 2]: [
+    { act:'Event', c:'var(--amber)', t:'7:00 PM', note:'Football game — big event', posted:'Everyone', range:false, event:true },
+  ],
   [TODAY_IX + 3]: [
     { act:'Gym',  c:'var(--gym)',  t:'6:00 PM–8:00 PM', note:'back + pull day', posted:'Gym crew', range:false },
   ],
@@ -324,6 +327,7 @@ function slotTags(s){
     run:   s.act === 'Run',
     swim:  s.act === 'Swim',
     hard:  ['Gym','Run','Swim'].includes(s.act),
+    event: s.event || /game|match|tournament|race|meet|final|tryout/.test(txt),
   };
 }
 function dayName(ix){
@@ -335,6 +339,21 @@ function dayName(ix){
 function drawRecs(){
   const recs = [];
   const horizon = Math.max(weeksShown * 7, 14);
+  /* big-event awareness: protect the 2 days before anything tagged as an event */
+  for (let e = 0; e < horizon; e++) {
+    const ev = (daySlots[e] || []).find(s => slotTags(s).event);
+    if (!ev) continue;
+    const evName = ev.note.split('—')[0].trim() || ev.act;
+    for (let i = Math.max(0, e - 2); i < e; i++) {
+      if ((daySlots[i] || []).some(s => slotTags(s).legs && !s.done)) {
+        recs.push({ ic:'⚠️', t:`${evName} ${dayName(e)} — keep legs fresh`,
+          body:`You have ${evName.toLowerCase()} ${dayName(e)} and heavy leg work planned ${dayName(i)}. Go light or skip legs entirely so you're fresh for it.` });
+      } else if ((daySlots[i] || []).some(s => slotTags(s).hard && !s.done)) {
+        recs.push({ ic:'⚠️', t:`${evName} ${dayName(e)} — ease up ${dayName(i)}`,
+          body:`Intense session planned ${dayName(i)}, right before ${evName.toLowerCase()} ${dayName(e)}. Consider a lighter version.` });
+      }
+    }
+  }
   for (let i = 0; i < horizon; i++) {
     const today = (daySlots[i] || []).map(slotTags);
     const next  = (daySlots[i + 1] || []).map(slotTags);
@@ -363,7 +382,7 @@ function drawRecs(){
         `<div class="rec" onclick="this.classList.toggle('open')"><span class="ic">${r.ic}</span>` +
         `<span class="tt">${r.t}</span><span class="chev">▾</span>` +
         `<div class="body sub">${r.body}</div></div>`).join('')
-    : '<div class="sub">No conflicts spotted in your plan — nice spacing 👌</div>';
+    : '<div class="sub">Nothing to flag — these recs are generated from your own schedule and goals, and right now the spacing looks good 👌</div>';
 }
 
 /* ---------- FRDS: add friend ---------- */
@@ -377,17 +396,18 @@ function sendFriendReq(){
 }
 
 /* ---------- FRDS feed ---------- */
+/* main = the activity (big, bold, colored); sub = the specifics underneath */
 const feed = [
   { who:'Maya', ini:'M', when:'20 min ago · Gym crew', kind:'range', c:'var(--gym)',
-    txt:'Gym tonight — anyone in?', from:'6 PM', to:'10 PM', joins:1 },
-  { who:'Dev',  ini:'D', when:'1 h ago · Study group', kind:'ask',
-    txt:'Anyone have notes for BIO120 lecture 8? Missed it 😭', replies:2 },
-  { who:'Sam',  ini:'S', when:'3 h ago · Everyone', kind:'goal',
-    txt:'New goal: bench 185 lb by Sept 🎯', enc:4 },
-  { who:'Lena', ini:'L', when:'Yesterday · Close friends', kind:'done',
-    txt:'Goal complete — ran 5k in 23:58, new PR 🏁', congrats:9 },
-  { who:'Maya', ini:'M', when:'Yesterday · Everyone', kind:'invite',
-    txt:'New café on Bayview — anyone wanna try it Sat around 2?', ins:2 },
+    main:'Gym', label:'PLAN', txt:'Tonight — anyone in?', from:'6 PM', to:'10 PM', joins:1 },
+  { who:'Dev',  ini:'D', when:'1 h ago · Study group', kind:'ask', c:'var(--study)',
+    main:'Study', label:'ASK', txt:'Anyone have notes for BIO120 lecture 8? Missed it 😭', replies:2 },
+  { who:'Sam',  ini:'S', when:'3 h ago · Everyone', kind:'goal', c:'var(--gym)',
+    main:'Gym', label:'NEW GOAL', txt:'Bench 185 lb by Sept 🎯', enc:4 },
+  { who:'Lena', ini:'L', when:'Yesterday · Close friends', kind:'done', c:'var(--run)',
+    main:'Run', label:'PR · GOAL COMPLETE', txt:'5k in 23:58 🏁', congrats:9 },
+  { who:'Maya', ini:'M', when:'Yesterday · Everyone', kind:'invite', c:'var(--pink)',
+    main:'Hangout', label:'OPEN INVITE', txt:'New café on Bayview — anyone wanna try it Sat around 2?', ins:2 },
 ];
 
 function drawFeed(){
@@ -396,9 +416,12 @@ function drawFeed(){
   feed.forEach((p, ix) => {
     const el = document.createElement('div');
     el.className = 'card post';
+    el.style.setProperty('--c', p.c);
     let body =
       `<div class="head"><div class="avatar">${p.ini}</div>` +
-      `<div><div class="who">${p.who}</div><div class="when">${p.when}</div></div></div><div>${p.txt}</div>`;
+      `<div><div class="who">${p.who}</div><div class="when">${p.when}</div></div>` +
+      `<span class="actbadge">${p.main}</span></div>` +
+      `<div class="kind">${p.label}</div><div class="subact">${p.txt}</div>`;
 
     if (p.kind === 'range') {
       body +=

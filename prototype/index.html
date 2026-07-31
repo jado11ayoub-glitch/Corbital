@@ -8,13 +8,12 @@
 </head>
 <body>
 
-<div class="ribbon"></div>
 <canvas id="fx"></canvas>
 <div class="app">
 <header>
   <div class="brandrow">
     <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v4</span>
+    <span class="pill">prototype v5</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -95,7 +94,7 @@
   <div style="display:flex;align-items:center;gap:8px">
     <div class="eyebrow" style="margin:0">Friends feed</div>
     <div class="spacer" style="flex:1"></div>
-    <button class="iconbtn sm" title="Add friend" aria-label="Add friend" onclick="toggleAddFriend()">＋</button>
+    <button class="btn primary small" onclick="toggleAddFriend()">＋ Add friend</button>
   </div>
   <div class="newact" id="addfriend" style="margin-bottom:10px">
     <input id="af-name" placeholder="Friend's name or @handle" style="flex:1;min-width:150px">
