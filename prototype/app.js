@@ -1,7 +1,8 @@
 /* ============================================================
-   Corbital prototype — behavior
+   Corbitals prototype — behavior
    All demo data lives in the plain arrays/objects below —
    edit them freely, refresh the page, done. No build step.
+   Profile + activity usage persist in localStorage.
    ============================================================ */
 
 /* ---------- helpers ---------- */
@@ -19,6 +20,12 @@ function openSheet(n){ $('#scrim').classList.add('show'); $('#sheet-' + n).class
 function closeSheets(){ $('#scrim').classList.remove('show'); $$('.sheet').forEach(s => s.classList.remove('show')); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheets(); });
 
+function store(key, val){ try { localStorage.setItem(key, JSON.stringify(val)); } catch(e){} }
+function load(key, fallback){
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch(e){ return fallback; }
+}
+
 /* ---------- main tabs ---------- */
 $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
@@ -28,8 +35,7 @@ $('#tabs').addEventListener('click', e => {
 });
 
 /* ---------- audience selectors ----------
-   .audsel.single → radio behavior (exactly one selected)
-   .audsel        → checkbox behavior (toggle any)
+   .audsel.single → radio behavior; .audsel → toggle any.
    Buttons starting with "＋" are actions, never selections. */
 document.addEventListener('click', e => {
   const b = e.target.closest('.audsel button');
@@ -46,44 +52,117 @@ document.addEventListener('click', e => {
   }
 });
 
-/* ---------- SCHD: week strip ---------- */
+/* ---------- profile (simple + private: name, avatar, PIN — no email) ---------- */
+const AVATARS = ['🙂','😎','🐆','🦍','🐬','⚡','🔥','🌊','🏔️','🎧'];
+let profile = load('cb_profile', { name:'', av:'🙂', pin:'' });
+
+(function initProfile(){
+  const cp = $('#pf-av');
+  AVATARS.forEach(a => {
+    const b = document.createElement('button');
+    b.textContent = a;
+    if (a === profile.av) b.classList.add('on');
+    b.onclick = () => { profile.av = a; cp.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+    cp.appendChild(b);
+  });
+  $('#pf-name').value = profile.name;
+  $('#pf-pin').value = profile.pin;
+  $('#profilebtn').textContent = profile.av;
+  if (profile.pin) askPin();
+})();
+
+function saveProfile(){
+  const name = $('#pf-name').value.trim();
+  const pin = $('#pf-pin').value.trim();
+  if (pin && !/^\d{4}$/.test(pin)) { toast('PIN needs to be exactly 4 digits'); return; }
+  profile.name = name;
+  profile.pin = pin;
+  store('cb_profile', profile);
+  $('#profilebtn').textContent = profile.av;
+  closeSheets();
+  toast(name ? `Saved — hey ${name} ${profile.av}` : 'Profile saved');
+}
+
+function askPin(){
+  for (let i = 0; i < 3; i++) {
+    const got = prompt(`Corbitals is locked ${profile.av}\nEnter your 4-digit PIN:`);
+    if (got === null) break;                 /* cancelled — stay soft-locked in prototype */
+    if (got === profile.pin) { toast(`Unlocked — welcome back${profile.name ? ', ' + profile.name : ''}`); return; }
+  }
+  toast('Prototype note: real lock screen comes with real accounts');
+}
+function lockApp(){
+  if (!profile.pin) { toast('Set a 4-digit PIN first, then Save'); return; }
+  closeSheets();
+  askPin();
+}
+
+/* ---------- SCHD: multi-week calendar ---------- */
 const DOW = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
-const weekDates = [27, 28, 29, 30, 31, 1, 2];
-const dayLabels = ['Mon Jul 27','Tue Jul 28','Wed Jul 29','Thu Jul 30','Today — Fri Jul 31','Sat Aug 1','Sun Aug 2'];
-let selDay = 4;
+const BASE = new Date(2026, 6, 27);        /* Mon Jul 27 — week containing "today" */
+const TODAY_IX = 4;                        /* Fri Jul 31 */
+let weeksShown = 1;
+let selDay = TODAY_IX;
+
+function dayDate(ix){ const d = new Date(BASE); d.setDate(d.getDate() + ix); return d; }
+function dayLabel(ix){
+  const d = dayDate(ix);
+  const s = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  return ix === TODAY_IX ? 'Today — ' + s : s;
+}
 
 const daySlots = {
-  4: [
-    { act:'Gym',   c:'var(--gym)',   t:'6:00 PM–10:00 PM', note:'chest & tris — posted as a range', posted:'Everyone', range:true },
+  [TODAY_IX]: [
+    { act:'Gym',   c:'var(--gym)',   t:'6:00 PM–10:00 PM', note:'leg day — posted as a range', posted:'Everyone', range:true },
     { act:'Study', c:'var(--study)', t:'2:00 PM–4:00 PM',  note:'BIO120 review', posted:'Only me', range:false },
   ],
-  5: [
+  [TODAY_IX + 1]: [
     { act:'Run', c:'var(--run)', t:'9:00 AM–11:00 AM', note:'easy 5k, open invite', posted:'Close friends', range:true },
   ],
+  [TODAY_IX + 3]: [
+    { act:'Gym',  c:'var(--gym)',  t:'6:00 PM–8:00 PM', note:'back + pull day', posted:'Gym crew', range:false },
+  ],
+  [TODAY_IX + 4]: [
+    { act:'Swim', c:'var(--swim)', t:'7:00 AM–8:00 AM', note:'laps at the YMCA', posted:'Close friends', range:false },
+  ],
 };
+
+$('#weeksseg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  $$('#weeksseg button').forEach(x => x.classList.toggle('on', x === b));
+  weeksShown = +b.dataset.w;
+  if (selDay >= weeksShown * 7) selDay = TODAY_IX;
+  drawWeek();
+  drawSlots();
+});
 
 function drawWeek(){
   const w = $('#weekstrip');
   w.innerHTML = '';
-  DOW.forEach((d, i) => {
+  const total = weeksShown * 7;
+  for (let i = 0; i < total; i++) {
     const el = document.createElement('button');
     el.className = 'day' + (i === selDay ? ' on' : '');
     const marks = (daySlots[i] || []).slice(0, 3)
       .map(s => `<i style="background:${i === selDay ? 'var(--on-brand)' : s.c}"></i>`).join('');
-    el.innerHTML = `<div class="dow">${d}</div><div class="num">${weekDates[i]}</div><div class="marks">${marks}</div>`;
+    el.innerHTML = `<div class="dow">${DOW[i % 7]}</div><div class="num">${dayDate(i).getDate()}</div><div class="marks">${marks}</div>`;
     el.onclick = () => { selDay = i; drawWeek(); drawSlots(); };
     w.appendChild(el);
-  });
+  }
+  const endD = dayDate(total - 1);
+  $('#weekrangelabel').textContent = weeksShown === 1
+    ? 'This week'
+    : `Jul 27 – ${endD.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
 }
 
 function drawSlots(){
-  $('#daylabel').textContent = dayLabels[selDay];
+  $('#daylabel').textContent = dayLabel(selDay);
   const box = $('#slots');
   box.innerHTML = '';
   const list = daySlots[selDay] || [];
   if (!list.length) {
     box.innerHTML = '<div class="card sub">Nothing planned — tap an activity chip above to add.</div>';
-    return;
   }
   list.forEach((s, ix) => {
     const el = document.createElement('div');
@@ -94,30 +173,45 @@ function drawSlots(){
       `<div class="sub">${s.note}</div><div class="meta">` +
       `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div></div>` +
       `<button class="del" title="Remove" aria-label="Remove">✕</button>`;
-    el.querySelector('.del').onclick = () => { list.splice(ix, 1); drawWeek(); drawSlots(); toast('Removed'); };
+    el.querySelector('.del').onclick = () => { list.splice(ix, 1); drawWeek(); drawSlots(); drawRecs(); toast('Removed'); };
     box.appendChild(el);
   });
+  drawRecs();
 }
 
-/* ---------- SCHD: activity chips ---------- */
-let acts = [
-  { n:'Gym',   c:'var(--gym)' },
-  { n:'Run',   c:'var(--run)' },
-  { n:'Swim',  c:'var(--swim)' },
-  { n:'Study', c:'var(--study)' },
-];
-const pickColors = ['var(--gym)','var(--run)','var(--swim)','var(--study)','var(--other)'];
+/* ---------- SCHD: activity chips (favorites + sorted by usage) ---------- */
+let acts = load('cb_acts', [
+  { n:'Gym',   c:'var(--gym)',   fav:true,  uses:34 },
+  { n:'Run',   c:'var(--run)',   fav:false, uses:21 },
+  { n:'Study', c:'var(--study)', fav:false, uses:18 },
+  { n:'Swim',  c:'var(--swim)',  fav:false, uses:12 },
+]);
+const pickColors = ['var(--gym)','var(--run)','var(--swim)','var(--study)','var(--other)',
+                    'var(--pink)','var(--amber)','var(--crimson)','var(--sky)','var(--moss)'];
 let naColor = pickColors[4];
+
+function sortedActs(){
+  /* favorites pinned first; inside each group, most-used first */
+  return [...acts].sort((a, b) => (b.fav - a.fav) || (b.uses - a.uses));
+}
 
 function drawChips(){
   const r = $('#actchips');
   r.innerHTML = '';
-  acts.forEach(a => {
+  sortedActs().forEach(a => {
     const b = document.createElement('button');
     b.className = 'chip';
     b.style.setProperty('--c', a.c);
-    b.innerHTML = `<span class="swatch"></span>${a.n}`;
+    b.innerHTML = `<span class="swatch"></span>${a.n} <span class="uses">×${a.uses}</span>` +
+                  `<span class="fav ${a.fav ? 'on' : ''}" title="${a.fav ? 'Unfavorite' : 'Favorite — pins it to the front'}">${a.fav ? '★' : '☆'}</span>`;
     b.onclick = () => openComposer(a);
+    b.querySelector('.fav').onclick = e => {
+      e.stopPropagation();
+      a.fav = !a.fav;
+      store('cb_acts', acts);
+      drawChips();
+      toast(a.fav ? `★ ${a.n} pinned to the front` : `${a.n} unpinned — back to usage order`);
+    };
     r.appendChild(b);
   });
   const plus = document.createElement('button');
@@ -143,7 +237,8 @@ function saveNewActivity(){
   const n = $('#na-name').value.trim();
   if (!n) { toast('Give it a name first'); return; }
   if (acts.some(a => a.n.toLowerCase() === n.toLowerCase())) { toast('You already have that one'); return; }
-  acts.push({ n, c: naColor });
+  acts.push({ n, c: naColor, fav:false, uses:0 });
+  store('cb_acts', acts);
   $('#na-name').value = '';
   $('#newact').classList.remove('show');
   drawChips();
@@ -152,8 +247,6 @@ function saveNewActivity(){
 
 /* ---------- SCHD: composer ---------- */
 let curAct = null;
-const times = [];
-for (let h = 6; h <= 23; h++) times.push(h);
 
 function fmtT(v){
   v = +v;
@@ -162,12 +255,12 @@ function fmtT(v){
 
 ['t-from','t-to'].forEach((id, ix) => {
   const s = document.getElementById(id);
-  times.forEach(t => {
+  for (let h = 6; h <= 23; h++) {
     const o = document.createElement('option');
-    o.value = t;
-    o.textContent = fmtT(t);
+    o.value = h;
+    o.textContent = fmtT(h);
     s.appendChild(o);
-  });
+  }
   s.value = ix ? 22 : 18; /* default 6 PM – 10 PM */
 });
 
@@ -198,13 +291,71 @@ function postPlan(){
     t: type === 'ask' ? 'anytime' : `${fmtT(f)}–${fmtT(t)}`,
     note, posted: aud, range: type !== 'ask',
   });
+  curAct.uses++;                                   /* usage count drives chip order */
+  store('cb_acts', acts);
+  bumpTotals(curAct.n, curAct.c);
   hideComposer();
   $('#c-note').value = '';
-  drawWeek();
-  drawSlots();
+  drawWeek(); drawSlots(); drawChips(); drawTotals();
   toast(aud === 'Only me'
     ? 'Added to your schedule (private)'
     : 'Posted — friends can now join or suggest a time inside your range');
+}
+
+/* ---------- SCHD: smart recommendations (v0 — 3 hardcoded rules) ----------
+   Real version needs a muscle-group/intensity model per activity (see notes). */
+function slotTags(s){
+  const txt = (s.act + ' ' + s.note).toLowerCase();
+  return {
+    legs:  /leg|squat|lunge/.test(txt),
+    back:  /back|pull|deadlift|row|lat/.test(txt),
+    run:   s.act === 'Run',
+    swim:  s.act === 'Swim',
+    hard:  ['Gym','Run','Swim'].includes(s.act),
+  };
+}
+function dayName(ix){
+  if (ix === TODAY_IX) return 'today';
+  if (ix === TODAY_IX + 1) return 'tomorrow';
+  return dayDate(ix).toLocaleDateString('en-US', { weekday:'long' });
+}
+
+function drawRecs(){
+  const recs = [];
+  const horizon = Math.max(weeksShown * 7, 14);
+  for (let i = 0; i < horizon; i++) {
+    const today = (daySlots[i] || []).map(slotTags);
+    const next  = (daySlots[i + 1] || []).map(slotTags);
+    if (today.some(t => t.legs) && next.some(t => t.run)) {
+      recs.push({ ic:'🦵', tx:`Leg day ${dayName(i)} + run ${dayName(i + 1)} — keep the run easy, or swap the order so your legs get recovery.` });
+    }
+    if (today.some(t => t.back) && next.some(t => t.swim)) {
+      recs.push({ ic:'🏊', tx:`Back workout ${dayName(i)} right before your swim ${dayName(i + 1)} — lats and shoulders overlap; make the swim technique-focused or space them out.` });
+    }
+  }
+  /* 3 hard days in a row → suggest a lighter day */
+  let streak = 0;
+  for (let i = 0; i < horizon; i++) {
+    if ((daySlots[i] || []).some(s => slotTags(s).hard)) {
+      streak++;
+      if (streak === 3) recs.push({ ic:'😮‍💨', tx:`Three intense days in a row ending ${dayName(i)} — consider making one lighter or adding a rest day.` });
+    } else streak = 0;
+  }
+  recs.push({ ic:'🤝', tx:'Sam and Maya both plan runs Saturday morning — post yours as a range to line up.' });
+  const box = $('#recs');
+  box.innerHTML = recs.length
+    ? recs.map(r => `<div class="rec"><span class="ic">${r.ic}</span><div class="sub">${r.tx}</div></div>`).join('')
+    : '<div class="sub">No conflicts spotted in your plan — nice spacing 👌</div>';
+}
+
+/* ---------- FRDS: add friend ---------- */
+function toggleAddFriend(){ $('#addfriend').classList.toggle('show'); $('#af-name').focus(); }
+function sendFriendReq(){
+  const n = $('#af-name').value.trim();
+  if (!n) { toast('Type a name or @handle first'); return; }
+  $('#af-name').value = '';
+  $('#addfriend').classList.remove('show');
+  toast(`Friend request sent to ${n} — they appear in your feed once they accept 🤝`);
 }
 
 /* ---------- FRDS feed ---------- */
@@ -265,7 +416,7 @@ function drawFeed(){
       body +=
         `<div class="actions">` +
         `<button class="reaction" onclick="fireOnce(this, &quot;You're in — it lands on your SCHD for Sat ☕&quot;)">☕ I'm in · <span class="count">${p.ins}</span></button>` +
-        `<button class="btn small" onclick="toast('Suggested a different time — ${p.who} will see it on her post')">⇄ Suggest time</button></div>`;
+        `<button class="btn small" onclick="toast('Suggested a different time — ${p.who} will see it on their post')">⇄ Suggest time</button></div>`;
     }
     el.innerHTML = body;
     box.appendChild(el);
@@ -306,7 +457,28 @@ function fireOnce(btn, msg){
   toast(msg);
 }
 
-/* ---------- GLPR: charts ---------- */
+/* ---------- GLPR: all-time totals (month / year / ever) ---------- */
+const totals = {
+  Gym:   { c:'var(--gym)',   month:9,  year:64,  ever:180 },
+  Run:   { c:'var(--run)',   month:6,  year:41,  ever:97  },
+  Study: { c:'var(--study)', month:11, year:88,  ever:203 },
+  Swim:  { c:'var(--swim)',  month:3,  year:22,  ever:45  },
+};
+function bumpTotals(name, color){
+  if (!totals[name]) totals[name] = { c:color, month:0, year:0, ever:0 };
+  totals[name].month++; totals[name].year++; totals[name].ever++;
+}
+function drawTotals(){
+  const box = $('#totals');
+  box.innerHTML = Object.entries(totals)
+    .sort((a, b) => b[1].ever - a[1].ever)
+    .map(([n, t]) =>
+      `<div class="statrow"><span class="swatch" style="--c:${t.c}"></span><span class="n">${n}</span>` +
+      `<span class="v"><b>${t.month}</b> this month · <b>${t.year}</b> this year · <b>${t.ever}</b> all-time</span></div>`
+    ).join('');
+}
+
+/* ---------- GLPR: weekly consistency + charts ---------- */
 const freq = {
   weeks: ['W1','W2','W3','W4'],
   series: [
@@ -344,8 +516,10 @@ function drawFreq(){
 
 function logSession(){
   freq.series[0].v[3] = Math.min(7, freq.series[0].v[3] + 1);
+  bumpTotals('Gym', 'var(--gym)');
   drawFreq();
-  toast('Gym session logged for this week 💪');
+  drawTotals();
+  toast('Gym session logged — weekly chart and all-time stats both updated 💪');
 }
 
 /* Generic SVG line chart. invert=true → lower values plot higher (times). */
@@ -504,6 +678,7 @@ drawSlots();
 drawChips();
 drawFeed();
 drawFreq();
+drawTotals();
 lineChart($('#benchchart'), [{x:1,y:10},{x:5,y:13},{x:8,y:11},{x:12,y:16}], ' reps', 'var(--gym)', false);
 lineChart($('#swimchart'),  [{x:1,y:9},{x:6,y:8.5},{x:14,y:8}], ' min', 'var(--swim)', true);
 buildGrid(true);

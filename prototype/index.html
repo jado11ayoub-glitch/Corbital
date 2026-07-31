@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Corbital — Prototype</title>
+<title>Corbitals — Prototype</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -11,9 +11,10 @@
 <div class="app">
 <header>
   <div class="brandrow">
-    <div class="logo">Corbital<span class="dot">.</span></div>
-    <span class="pill">prototype v2</span>
+    <div class="logo">Corbitals<span class="dot">.</span></div>
+    <span class="pill">prototype v3</span>
     <div class="spacer"></div>
+    <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
     <button class="iconbtn" title="Build notes — what's missing" onclick="openSheet('notes')">📝</button>
   </div>
@@ -29,6 +30,13 @@
 <main>
 <!-- ================= SCHD ================= -->
 <section class="panel on" id="p-schd">
+  <div class="weekctl">
+    <span class="sub" id="weekrangelabel">This week</span>
+    <div class="spacer"></div>
+    <div class="seg" id="weeksseg">
+      <button class="on" data-w="1">1w</button><button data-w="2">2w</button><button data-w="3">3w</button><button data-w="4">4w</button>
+    </div>
+  </div>
   <div class="weekstrip" id="weekstrip"></div>
 
   <div class="eyebrow">Quick add — tap an activity</div>
@@ -76,14 +84,21 @@
   <div class="card">
     <div class="sub">💬 You asked <b>Close friends</b>: “anyone have notes for BIO120?” — <span class="count">2 replies</span></div>
   </div>
-  <div class="card">
-    <div class="sub">💡 Recommendation for you: <b>Sam</b> and <b>Maya</b> both plan runs Sat morning — post yours in a range to line up.</div>
-  </div>
+  <div class="eyebrow">Smart recommendations <span class="tag-todo">V0</span></div>
+  <div class="card" id="recs"></div>
 </section>
 
 <!-- ================= FRDS ================= -->
 <section class="panel" id="p-frds">
-  <div class="eyebrow">Friends feed</div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <div class="eyebrow" style="margin:0">Friends feed</div>
+    <div class="spacer" style="flex:1"></div>
+    <button class="btn small" onclick="toggleAddFriend()">＋ Add friend</button>
+  </div>
+  <div class="newact" id="addfriend" style="margin-bottom:10px">
+    <input id="af-name" placeholder="Friend's name or @handle" style="flex:1;min-width:150px">
+    <button class="btn primary small" onclick="sendFriendReq()">Send request</button>
+  </div>
   <div id="feed"></div>
 </section>
 
@@ -100,6 +115,12 @@
     <div class="chart"><div class="bars" id="freqchart"></div></div>
     <div class="legendrow" id="freqlegend"></div>
     <div class="actions"><button class="btn small" onclick="logSession()">＋ Log a session this week</button></div>
+  </div>
+
+  <div class="card">
+    <div class="goalhead"><h2>All-time stats</h2><span class="pill type">Totals · month / year / ever</span></div>
+    <div class="sub">Not just per-week — long-run counts of everything you do. Grows automatically every time you post a plan.</div>
+    <div id="totals" style="margin-top:6px"></div>
   </div>
 
   <div class="card">
@@ -191,6 +212,24 @@
 </main>
 </div>
 
+<!-- ============ profile sheet ============ -->
+<div class="sheet" id="sheet-profile" role="dialog" aria-label="Your profile">
+  <div class="handle"></div>
+  <h3>🙂 Your profile</h3>
+  <div class="sub" style="margin-bottom:12px">Kept simple on purpose — a name, a face, and a 4-digit PIN so only you can open your Corbitals on this device. No email, no password.</div>
+  <div class="profrow"><label for="pf-name">Display name</label>
+    <input id="pf-name" placeholder="e.g. Jad" style="width:100%"></div>
+  <div class="profrow"><label>Avatar</label>
+    <div class="avpick" id="pf-av"></div></div>
+  <div class="profrow"><label for="pf-pin">4-digit PIN</label>
+    <input id="pf-pin" class="pinbox" inputmode="numeric" maxlength="4" placeholder="••••">
+    <span class="sub"> asked when the app opens on this device</span></div>
+  <div style="display:flex;gap:8px;margin-top:14px">
+    <button class="btn primary" onclick="saveProfile()">Save profile</button>
+    <button class="btn" onclick="lockApp()">Lock now</button>
+  </div>
+</div>
+
 <!-- ============ privacy sheet ============ -->
 <div class="scrim" id="scrim" onclick="closeSheets()"></div>
 <div class="sheet" id="sheet-privacy" role="dialog" aria-label="Privacy controls">
@@ -220,6 +259,8 @@
     <li><span class="q">Location search:</span> currently canned places (YMCA, Fairview, Don Mills, Bayview). Needs: how locations get added to a network, and region vs. exact-place search rules. Marked TBD.</li>
     <li><span class="q">Time-range replies:</span> the reply picker enforces staying inside the poster's range, but conflicting sub-ranges from two friends (6–7 vs 6:30–7:30) aren't designed yet — merge? vote? poster picks?</li>
     <li><span class="q">Custom activity trackers:</span> the 3 tracker types cover count / measure / ladder, but the "create goal" wizard (pick unit, direction, milestones) is a stub — needs a real flow.</li>
+    <li><span class="q">Smart recommendations:</span> v0 ships 3 hardcoded recovery rules (legs→run, back→swim, 3 hard days→rest). The real version needs a proper muscle-group / intensity model per activity. <span class="tag-todo">LATER</span></li>
+    <li><span class="q">Profile PIN:</span> stored on this device only — fine for a prototype, but real accounts need actual auth eventually (still email-free options exist: passkeys).</li>
     <li><span class="q">Notifications:</span> nothing yet for "someone joined your plan", "goal congratulated", "invite filled". Probably a bell in the header.</li>
     <li><span class="q">Groups vs circles:</span> privacy circles, PLANNIT send-groups, and SEARCH groups are three separate ideas — they should probably be one "group" object used everywhere.</li>
     <li><span class="q">Live status:</span> the LIVE pill in location search implies real-time check-ins — needs a decision: automatic (scary) vs manual "I'm here" (safer).</li>

@@ -10,6 +10,7 @@
   --ink:#1B241F; --ink2:#55605A; --ink3:#8A948D;
   --brand:#157F49; --brand-ink:#0E5C35; --on-brand:#FFFFFF;
   --gym:#D2622A; --run:#4A5BD7; --swim:#0E93A0; --study:#9A4FBF; --other:#157F49;
+  --pink:#C7527E; --amber:#A9761C; --crimson:#C43C3C; --sky:#2E7FBF; --moss:#6B8F2A;
   --yes:#1E9A55; --no:#CE3B3B; --maybe:#D9A012; --depends:#8B5CD6;
   --yes-soft:#DCF2E4; --no-soft:#F9E0E0; --maybe-soft:#F7EDCC; --depends-soft:#EBE1FA;
   --shadow:0 1px 2px rgba(20,30,25,.06),0 4px 14px rgba(20,30,25,.07);
@@ -21,6 +22,7 @@
     --ink:#E8ECE8; --ink2:#A7B0A9; --ink3:#727C74;
     --brand:#2F9E63; --brand-ink:#57CA8C; --on-brand:#0B130E;
     --gym:#D97742; --run:#6B7BE8; --swim:#1FA3B2; --study:#B06BD4; --other:#2F9E63;
+    --pink:#D66F9A; --amber:#C29337; --crimson:#D95F5F; --sky:#5FA3DC; --moss:#8FB04E;
     --yes:#2FAE68; --no:#D95555; --maybe:#CFA02F; --depends:#9C74E0;
     --yes-soft:#1D3427; --no-soft:#3A2222; --maybe-soft:#37301A; --depends-soft:#2C2440;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.35);
@@ -31,6 +33,7 @@
   --ink:#1B241F; --ink2:#55605A; --ink3:#8A948D;
   --brand:#157F49; --brand-ink:#0E5C35; --on-brand:#FFFFFF;
   --gym:#D2622A; --run:#4A5BD7; --swim:#0E93A0; --study:#9A4FBF; --other:#157F49;
+  --pink:#C7527E; --amber:#A9761C; --crimson:#C43C3C; --sky:#2E7FBF; --moss:#6B8F2A;
   --yes:#1E9A55; --no:#CE3B3B; --maybe:#D9A012; --depends:#8B5CD6;
   --yes-soft:#DCF2E4; --no-soft:#F9E0E0; --maybe-soft:#F7EDCC; --depends-soft:#EBE1FA;
   --shadow:0 1px 2px rgba(20,30,25,.06),0 4px 14px rgba(20,30,25,.07);
@@ -40,6 +43,7 @@
   --ink:#E8ECE8; --ink2:#A7B0A9; --ink3:#727C74;
   --brand:#2F9E63; --brand-ink:#57CA8C; --on-brand:#0B130E;
   --gym:#D97742; --run:#6B7BE8; --swim:#1FA3B2; --study:#B06BD4; --other:#2F9E63;
+    --pink:#D66F9A; --amber:#C29337; --crimson:#D95F5F; --sky:#5FA3DC; --moss:#8FB04E;
   --yes:#2FAE68; --no:#D95555; --maybe:#CFA02F; --depends:#9C74E0;
   --yes-soft:#1D3427; --no-soft:#3A2222; --maybe-soft:#37301A; --depends-soft:#2C2440;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.35);
@@ -203,3 +207,31 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .notes li{margin-bottom:8px;font-size:13.5px}
 .notes .q{font-weight:700}
 .tag-todo{background:var(--maybe-soft);color:var(--ink);font-size:10px;font-weight:800;padding:1px 7px;border-radius:999px;letter-spacing:.05em}
+
+/* ============ v3 additions ============ */
+/* favorite star on activity chips */
+.chip .fav{font-size:13px;line-height:1;color:var(--ink3);padding:0 0 0 2px}
+.chip .fav.on{color:var(--maybe)}
+.chip .fav:hover{transform:scale(1.15)}
+.chip .uses{font-size:10px;color:var(--ink3);font-variant-numeric:tabular-nums}
+/* week range toggle */
+.weekctl{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.weekctl .spacer{flex:1}
+/* all-time stats (GLPR) */
+.statrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.statrow:last-child{border-bottom:none}
+.statrow .swatch{width:10px;height:10px;border-radius:50%;background:var(--c,var(--other));flex:none}
+.statrow .n{font-weight:700;font-size:13px;flex:1}
+.statrow .v{font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums;text-align:right}
+.statrow .v b{color:var(--ink);font-size:14px}
+/* profile sheet */
+.avpick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.avpick button{width:38px;height:38px;border-radius:50%;background:var(--surface2);border:2px solid transparent;font-size:19px;display:grid;place-items:center}
+.avpick button.on{border-color:var(--brand)}
+.profrow{margin-bottom:12px}
+.profrow label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:4px}
+.pinbox{letter-spacing:.4em;font-family:ui-monospace,Menlo,monospace;width:110px;text-align:center}
+/* smart recommendations */
+.rec{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line)}
+.rec:last-child{border-bottom:none}
+.rec .ic{flex:none;font-size:16px}
