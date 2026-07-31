@@ -24,7 +24,15 @@
       <input id="g-name" placeholder="What friends see — e.g. Jad ⚡" maxlength="24" autocomplete="off">
       <div class="hint">Can be anything (kept clean)</div>
     </div>
-    <div class="gfield">
+    <div id="fp-head" style="display:none;text-align:center;margin-bottom:14px">
+      <div style="font-weight:800;font-size:16px">Reset your password</div>
+      <div class="sub">Type the email linked to your account and we'll send a 6-digit code</div>
+    </div>
+    <div class="gfield" id="gf-remail" style="display:none">
+      <label for="g-remail">Your email</label>
+      <input id="g-remail" type="email" placeholder="e.g. jad@gmail.com" autocomplete="email">
+    </div>
+    <div class="gfield" id="gf-user">
       <label for="g-user">Username</label>
       <input id="g-user" placeholder="e.g. jad_11" maxlength="20" autocomplete="username">
       <div class="hint">3+ characters · letters, numbers and _ only · this is what friends search</div>
@@ -47,6 +55,7 @@
     <div class="gerr" id="g-err"></div>
     <button class="btn primary" id="g-go" onclick="authSubmit()">Sign in</button>
     <button class="btn small" id="g-forgot" onclick="startForgot()" style="width:100%;justify-content:center;margin-top:8px;background:none;border:none;color:var(--ink2)">Forgot password?</button>
+    <button class="btn small" id="g-back" onclick="setAuthMode('in')" style="display:none;width:100%;justify-content:center;margin-top:8px;background:none;border:none;color:var(--ink2)">← Back to sign in</button>
     <div class="demo">Demo friends to test with — usernames <b>maya</b>, <b>sam</b>, <b>dev</b>, <b>lena</b> (password <b>friends1</b>)</div>
   </div>
 </div>
@@ -54,7 +63,7 @@
 <header>
   <div class="brandrow">
     <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v10</span>
+    <span class="pill">prototype v11</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>

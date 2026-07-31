@@ -157,17 +157,24 @@ function currentUser(){
 
 function setAuthMode(m){
   authMode = m;
+  const isFp = m === 'fp';
+  $('#authseg').style.display = isFp ? 'none' : 'flex';
+  $('#fp-head').style.display = isFp ? 'block' : 'none';
+  $('#gf-remail').style.display = isFp ? 'block' : 'none';
+  $('#gf-user').style.display = isFp ? 'none' : 'block';
   $$('#authseg button').forEach(x => x.classList.toggle('on', x.dataset.m === m));
   $('#gf-name').style.display = m === 'up' ? 'block' : 'none';
   $('#gf-email').style.display = m === 'up' ? 'block' : 'none';
   $('#gf-code').style.display = 'none';
-  $('#g-pass').parentElement.style.display = 'block';
+  $('#g-pass').parentElement.style.display = isFp ? 'none' : 'block';
   $('#g-passlabel').textContent = 'Password';
   $('#g-forgot').style.display = m === 'in' ? 'inline-flex' : 'none';
-  $('#g-go').textContent = m === 'up' ? 'Create account' : 'Sign in';
+  $('#g-back').style.display = isFp ? 'inline-flex' : 'none';
+  $('#g-go').textContent = isFp ? 'Send code' : (m === 'up' ? 'Create account' : 'Sign in');
   $('#g-pass').autocomplete = m === 'up' ? 'new-password' : 'current-password';
   $('#g-err').textContent = '';
-  fp = null;
+  fp = isFp ? { stage:'email' } : null;
+  if (isFp) $('#g-remail').focus();
 }
 $('#authseg').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -176,21 +183,8 @@ $('#authseg').addEventListener('click', e => {
 
 /* ---------- forgot password (needs a linked email) ---------- */
 let fp = null;   /* { stage, key, code } */
-function startForgot(){
-  const key = $('#g-user').value.trim().toLowerCase();
-  const acc = loadAccounts()[key];
-  if (!USER_RE.test(key)) { $('#g-err').textContent = 'Type your username first, then tap Forgot password'; return; }
-  if (!acc) { $('#g-err').textContent = 'No account with that username on this device'; return; }
-  if (!acc.email) { $('#g-err').textContent = 'No email linked to this account, so the password can\'t be reset — add one in Profile next time'; return; }
-  fp = { stage:'code', key, code: newCode() };
-  sendCode(acc.email, fp.code);
-  $('#gf-code').style.display = 'block';
-  $('#g-pass').parentElement.style.display = 'none';
-  $('#g-go').textContent = 'Verify code';
-  $('#g-err').textContent = '';
-  $('#g-code').focus();
-}
-['g-user','g-pass','g-name'].forEach(id => {
+function startForgot(){ setAuthMode('fp'); }
+['g-user','g-pass','g-name','g-remail','g-code'].forEach(id => {
   document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit(); });
 });
 
@@ -199,6 +193,22 @@ async function authSubmit(){
   err('');
   if (fp) {
     const accounts = loadAccounts();
+    if (fp.stage === 'email') {
+      const em = normEmail($('#g-remail').value);
+      if (!em) { err('That email doesn\'t look right'); return; }
+      const acc2 = Object.values(accounts).find(a => a.email === em);
+      if (!acc2) { err('No account uses that email on this device'); return; }
+      fp.key = acc2.username.toLowerCase();
+      fp.code = newCode();
+      fp.stage = 'code';
+      sendCode(em, fp.code);
+      $('#gf-remail').style.display = 'none';
+      $('#gf-code').style.display = 'block';
+      $('#g-go').textContent = 'Verify code';
+      $('#g-code').value = '';
+      $('#g-code').focus();
+      return;
+    }
     const acc = accounts[fp.key];
     if (fp.stage === 'code') {
       if ($('#g-code').value.trim() !== fp.code) { err('Wrong code — check the text we sent'); return; }
@@ -219,8 +229,9 @@ async function authSubmit(){
       accounts[fp.key] = acc;
       saveAccounts(accounts);
       store('cb_session', fp.key);
-      fp = null;
       setAuthMode('in');
+      $('#g-remail').value = '';
+      $('#g-code').value = '';
       enterApp();
       toast('Password reset — you\'re signed in ✓');
       return;
