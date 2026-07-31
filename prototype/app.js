@@ -166,14 +166,26 @@ function drawSlots(){
   }
   list.forEach((s, ix) => {
     const el = document.createElement('div');
-    el.className = 'slot';
+    el.className = 'slot' + (s.done ? ' done' : '');
     el.style.setProperty('--c', s.c);
     el.innerHTML =
-      `<div class="stripe"></div><div><div class="t">${s.act} · <span class="mono">${s.t}</span></div>` +
-      `<div class="sub">${s.note}</div><div class="meta">` +
-      `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div></div>` +
+      `<div class="stripe"></div>` +
+      `<button class="doneb" title="Mark done — logs it everywhere" aria-label="Mark done">✓</button>` +
+      `<div style="flex:1"><div class="t">${s.act} · <span class="mono">${s.t}</span></div>` +
+      `<div class="body"><div class="sub">${s.note}</div><div class="meta">` +
+      `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div></div></div>` +
+      `<span class="chev">▾</span>` +
       `<button class="del" title="Remove" aria-label="Remove">✕</button>`;
-    el.querySelector('.del').onclick = () => { list.splice(ix, 1); drawWeek(); drawSlots(); drawRecs(); toast('Removed'); };
+    el.onclick = () => el.classList.toggle('open');
+    el.querySelector('.del').onclick = e => { e.stopPropagation(); list.splice(ix, 1); drawWeek(); drawSlots(); toast('Removed'); };
+    el.querySelector('.doneb').onclick = e => {
+      e.stopPropagation();
+      if (s.done) { s.done = false; drawSlots(); return; }
+      s.done = true;
+      logActivity(s.act, [], 'from your schedule');
+      burst(e.clientX, e.clientY, 26);
+      drawSlots();
+    };
     box.appendChild(el);
   });
   drawRecs();
@@ -327,24 +339,30 @@ function drawRecs(){
     const today = (daySlots[i] || []).map(slotTags);
     const next  = (daySlots[i + 1] || []).map(slotTags);
     if (today.some(t => t.legs) && next.some(t => t.run)) {
-      recs.push({ ic:'🦵', tx:`Leg day ${dayName(i)} + run ${dayName(i + 1)} — keep the run easy, or swap the order so your legs get recovery.` });
+      recs.push({ ic:'🦵', t:`Legs ${dayName(i)} + run ${dayName(i + 1)}`,
+        body:`Keep the run easy, or swap the order so your legs get recovery time.` });
     }
     if (today.some(t => t.back) && next.some(t => t.swim)) {
-      recs.push({ ic:'🏊', tx:`Back workout ${dayName(i)} right before your swim ${dayName(i + 1)} — lats and shoulders overlap; make the swim technique-focused or space them out.` });
+      recs.push({ ic:'🏊', t:`Back day next to your swim`,
+        body:`Back workout ${dayName(i)}, swim ${dayName(i + 1)} — lats and shoulders overlap. Make the swim technique-focused or space them out.` });
     }
   }
-  /* 3 hard days in a row → suggest a lighter day */
   let streak = 0;
   for (let i = 0; i < horizon; i++) {
     if ((daySlots[i] || []).some(s => slotTags(s).hard)) {
       streak++;
-      if (streak === 3) recs.push({ ic:'😮‍💨', tx:`Three intense days in a row ending ${dayName(i)} — consider making one lighter or adding a rest day.` });
+      if (streak === 3) recs.push({ ic:'😮‍💨', t:'Three intense days in a row',
+        body:`Your streak ends ${dayName(i)} — consider making one day lighter or adding a rest day.` });
     } else streak = 0;
   }
-  recs.push({ ic:'🤝', tx:'Sam and Maya both plan runs Saturday morning — post yours as a range to line up.' });
+  recs.push({ ic:'🤝', t:'Two friends run Saturday morning',
+    body:'Sam and Maya both plan runs Saturday morning — post yours as a range to line up.' });
   const box = $('#recs');
   box.innerHTML = recs.length
-    ? recs.map(r => `<div class="rec"><span class="ic">${r.ic}</span><div class="sub">${r.tx}</div></div>`).join('')
+    ? recs.map(r =>
+        `<div class="rec" onclick="this.classList.toggle('open')"><span class="ic">${r.ic}</span>` +
+        `<span class="tt">${r.t}</span><span class="chev">▾</span>` +
+        `<div class="body sub">${r.body}</div></div>`).join('')
     : '<div class="sub">No conflicts spotted in your plan — nice spacing 👌</div>';
 }
 
@@ -514,12 +532,146 @@ function drawFreq(){
     .map(s => `<span><i style="background:${s.c}"></i>${s.n}</span>`).join('');
 }
 
-function logSession(){
-  freq.series[0].v[3] = Math.min(7, freq.series[0].v[3] + 1);
-  bumpTotals('Gym', 'var(--gym)');
-  drawFreq();
-  drawTotals();
-  toast('Gym session logged — weekly chart and all-time stats both updated 💪');
+/* ---------- universal workout logger ----------
+   One log → weekly chart + all-time stats + matching performance cards. */
+const LOG_DETAILS = {
+  Gym:   ['Chest','Back','Arms','Shoulders','Legs','Core'],
+  Run:   ['Sprint','Tempo','Long'],
+  Swim:  ['Sprint','Distance','Technique'],
+  Study: ['Deep work','Review','Group'],
+};
+let logAct = 'Gym';
+let logSel = [];
+const logbook = [
+  { act:'Gym', c:'var(--gym)', tags:['Legs'], when:'Yesterday' },
+  { act:'Run', c:'var(--run)', tags:['Tempo'], when:'Wed' },
+];
+
+function drawLogger(){
+  const ar = $('#log-acts');
+  ar.innerHTML = '';
+  sortedActs().forEach(a => {
+    const b = document.createElement('button');
+    b.textContent = a.n;
+    b.style.setProperty('--c', a.c);
+    b.classList.toggle('on', a.n === logAct);
+    b.onclick = () => { logAct = a.n; logSel = []; drawLogger(); };
+    ar.appendChild(b);
+  });
+  const dr = $('#log-details');
+  dr.innerHTML = '';
+  const cur = acts.find(a => a.n === logAct);
+  (LOG_DETAILS[logAct] || ['Session']).forEach(d => {
+    const b = document.createElement('button');
+    b.textContent = d;
+    b.style.setProperty('--c', cur ? cur.c : 'var(--other)');
+    b.classList.toggle('on', logSel.includes(d));
+    b.onclick = () => {
+      logSel = logSel.includes(d) ? logSel.filter(x => x !== d) : [...logSel, d];
+      drawLogger();
+    };
+    dr.appendChild(b);
+  });
+  drawLogbook();
+}
+
+function drawLogbook(){
+  $('#logbook').innerHTML = logbook.slice(0, 5).map(e =>
+    `<div class="logentry"><span class="swatch" style="--c:${e.c}"></span>` +
+    `<b>${e.act}</b><span class="tags">${e.tags.join(' · ')}</span>` +
+    `<span class="when">${e.when}</span></div>`).join('');
+}
+
+/* fan-out core: called by the logger AND by checking off a planned slot */
+function logActivity(actName, tags, sourceNote){
+  const a = acts.find(x => x.n === actName);
+  const color = a ? a.c : 'var(--other)';
+  const hit = ['this week','all-time stats'];
+  const series = freq.series.find(x => x.n === actName);
+  if (series) series.v[3] = Math.min(7, series.v[3] + 1);
+  bumpTotals(actName, color);
+  if (actName === 'Gym' && tags.includes('Chest')) {
+    benchPts.push({ x: benchPts[benchPts.length - 1].x + 3, y: benchPts[benchPts.length - 1].y + 1 });
+    drawBench();
+    hit.push('bench trend');
+  }
+  if (actName === 'Swim' && (tags.includes('Distance') || tags.includes('Sprint'))) {
+    swimPts.push({ x: swimPts[swimPts.length - 1].x + 4, y: Math.max(7, swimPts[swimPts.length - 1].y - 0.2) });
+    drawSwim();
+    hit.push('swim trend');
+  }
+  logbook.unshift({ act: actName, c: color, tags: tags.length ? tags : [sourceNote || 'Session'], when:'Just now' });
+  drawFreq(); drawTotals(); drawLogbook();
+  toast(`Logged ${actName}${tags.length ? ' · ' + tags.join(', ') : ''} → ${hit.join(' + ')} ✓`);
+}
+
+function logWorkout(){
+  logActivity(logAct, logSel);
+  logSel = [];
+  drawLogger();
+  const btn = document.querySelector('.logcard .btn.primary');
+  const r = btn.getBoundingClientRect();
+  burst(r.left + r.width / 2, r.top, 30);
+}
+
+/* ---------- goal completion: ladder fills + fireworks ---------- */
+function completeGoal(btn){
+  const card = btn.closest('.card');
+  const next = card.querySelector('.step.next');
+  if (!next) { toast('Goal already complete — set a new milestone in the wizard'); return; }
+  next.classList.remove('next');
+  next.classList.add('done');
+  next.querySelector('.s').textContent = 'Today';
+  card.classList.remove('celebrate');
+  void card.offsetWidth;
+  card.classList.add('celebrate');
+  const r = card.getBoundingClientRect();
+  fireworks(r.left + r.width / 2, r.top + r.height / 2);
+  logActivity('Swim', ['Distance'], 'goal milestone');
+  toast('GOAL COMPLETE — 800 m nonstop! Friends with access can congratulate you in FRDS 🎉');
+}
+
+/* ---------- canvas confetti / fireworks ---------- */
+const fxc = document.getElementById('fx');
+const fxx = fxc.getContext('2d');
+let parts = [], fxRunning = false;
+function fxResize(){ fxc.width = innerWidth; fxc.height = innerHeight; }
+addEventListener('resize', fxResize); fxResize();
+const FX_COLORS = ['#D2622A','#4A5BD7','#0E93A0','#9A4FBF','#1E9A55','#D9A012','#C7527E'];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function burst(x, y, n){
+  if (reducedMotion) return;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 4;
+    parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
+      life: 50 + Math.random() * 30, c: FX_COLORS[i % FX_COLORS.length], s: 3 + Math.random() * 3 });
+  }
+  runFx();
+}
+function fireworks(x, y){
+  if (reducedMotion) { toast('🎆'); return; }
+  burst(x, y, 60);
+  setTimeout(() => burst(x - 90, y - 60, 40), 200);
+  setTimeout(() => burst(x + 90, y - 30, 40), 400);
+  setTimeout(() => burst(x, y - 100, 50), 650);
+}
+function runFx(){
+  if (fxRunning) return;
+  fxRunning = true;
+  (function tick(){
+    fxx.clearRect(0, 0, fxc.width, fxc.height);
+    parts = parts.filter(p => p.life > 0);
+    parts.forEach(p => {
+      p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.vx *= 0.99; p.life--;
+      fxx.globalAlpha = Math.min(1, p.life / 30);
+      fxx.fillStyle = p.c;
+      fxx.fillRect(p.x, p.y, p.s, p.s);
+    });
+    fxx.globalAlpha = 1;
+    if (parts.length) requestAnimationFrame(tick);
+    else { fxRunning = false; fxx.clearRect(0, 0, fxc.width, fxc.height); }
+  })();
 }
 
 /* Generic SVG line chart. invert=true → lower values plot higher (times). */
@@ -551,6 +703,11 @@ function lineChart(el, pts, unit, color, invert){
   svg += `<text x="${(X(last.x) - 8).toFixed(1)}" y="${(Y(last.y) - 9).toFixed(1)}" text-anchor="end" style="font-weight:700;fill:var(--ink)">${last.y}${unit}</text></svg>`;
   el.innerHTML = svg;
 }
+
+const benchPts = [{x:1,y:10},{x:5,y:13},{x:8,y:11},{x:12,y:16}];
+const swimPts  = [{x:1,y:9},{x:6,y:8.5},{x:14,y:8}];
+function drawBench(){ lineChart($('#benchchart'), benchPts, ' reps', 'var(--gym)', false); }
+function drawSwim(){ lineChart($('#swimchart'), swimPts, ' min', 'var(--swim)', true); }
 
 /* ---------- PLANNIT: availability grids ---------- */
 const STATES = ['s0','s1','s2','s3','s4'];
@@ -679,8 +836,9 @@ drawChips();
 drawFeed();
 drawFreq();
 drawTotals();
-lineChart($('#benchchart'), [{x:1,y:10},{x:5,y:13},{x:8,y:11},{x:12,y:16}], ' reps', 'var(--gym)', false);
-lineChart($('#swimchart'),  [{x:1,y:9},{x:6,y:8.5},{x:14,y:8}], ' min', 'var(--swim)', true);
+drawLogger();
+drawBench();
+drawSwim();
 buildGrid(true);
 buildReceivedGrid();
 drawSearch();

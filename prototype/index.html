@@ -8,11 +8,13 @@
 </head>
 <body>
 
+<div class="ribbon"></div>
+<canvas id="fx"></canvas>
 <div class="app">
 <header>
   <div class="brandrow">
     <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v3</span>
+    <span class="pill">prototype v4</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -93,7 +95,7 @@
   <div style="display:flex;align-items:center;gap:8px">
     <div class="eyebrow" style="margin:0">Friends feed</div>
     <div class="spacer" style="flex:1"></div>
-    <button class="btn small" onclick="toggleAddFriend()">＋ Add friend</button>
+    <button class="iconbtn sm" title="Add friend" aria-label="Add friend" onclick="toggleAddFriend()">＋</button>
   </div>
   <div class="newact" id="addfriend" style="margin-bottom:10px">
     <input id="af-name" placeholder="Friend's name or @handle" style="flex:1;min-width:150px">
@@ -109,12 +111,20 @@
     <button class="btn primary" onclick="toast('New-goal wizard: pick a tracker type below — every activity maps to one of the three')">＋ New goal</button>
   </div>
 
+  <div class="card logcard">
+    <div class="goalhead"><h2>Log a workout</h2><span class="pill type">One log · fills every section</span></div>
+    <div class="sub">Pick what you did — it lands in your weekly chart, all-time stats, and any matching progress tracker at once. No re-logging.</div>
+    <div class="detailrow" id="log-acts"></div>
+    <div class="detailrow" id="log-details"></div>
+    <div class="actions"><button class="btn primary" onclick="logWorkout()">Log it</button></div>
+    <div id="logbook" style="margin-top:10px"></div>
+  </div>
+
   <div class="card">
     <div class="goalhead"><h2>Consistency</h2><span class="pill type">Type 1 · How often</span></div>
     <div class="sub">Sessions per week — works for gym, runs, study, “try something new”, anything countable.</div>
     <div class="chart"><div class="bars" id="freqchart"></div></div>
     <div class="legendrow" id="freqlegend"></div>
-    <div class="actions"><button class="btn small" onclick="logSession()">＋ Log a session this week</button></div>
   </div>
 
   <div class="card">
@@ -145,7 +155,7 @@
       <div class="step next"><div class="d">800</div><div class="s">goal</div></div>
     </div>
     <div class="actions">
-      <button class="btn small" onclick="toast('Milestone logged — friends with access can congratulate you in FRDS 🎉')">✔ Hit next milestone</button>
+      <button class="btn small" onclick="completeGoal(this)">✔ Hit next milestone</button>
     </div>
   </div>
 
@@ -259,7 +269,7 @@
     <li><span class="q">Location search:</span> currently canned places (YMCA, Fairview, Don Mills, Bayview). Needs: how locations get added to a network, and region vs. exact-place search rules. Marked TBD.</li>
     <li><span class="q">Time-range replies:</span> the reply picker enforces staying inside the poster's range, but conflicting sub-ranges from two friends (6–7 vs 6:30–7:30) aren't designed yet — merge? vote? poster picks?</li>
     <li><span class="q">Custom activity trackers:</span> the 3 tracker types cover count / measure / ladder, but the "create goal" wizard (pick unit, direction, milestones) is a stub — needs a real flow.</li>
-    <li><span class="q">Smart recommendations:</span> v0 ships 3 hardcoded recovery rules (legs→run, back→swim, 3 hard days→rest). The real version needs a proper muscle-group / intensity model per activity. <span class="tag-todo">LATER</span></li>
+    <li><span class="q">Universal logger:</span> fan-out currently covers weekly chart, all-time stats, and the bench/swim trend cards via simple tag matching (Gym+Chest → bench, Swim+Distance → swim time). A real version needs a mapping you can edit per goal. <span class="tag-todo">LATER</span></li>\n    <li><span class="q">Smart recommendations:</span> v0 ships 3 hardcoded recovery rules (legs→run, back→swim, 3 hard days→rest). The real version needs a proper muscle-group / intensity model per activity. <span class="tag-todo">LATER</span></li>
     <li><span class="q">Profile PIN:</span> stored on this device only — fine for a prototype, but real accounts need actual auth eventually (still email-free options exist: passkeys).</li>
     <li><span class="q">Notifications:</span> nothing yet for "someone joined your plan", "goal congratulated", "invite filled". Probably a bell in the header.</li>
     <li><span class="q">Groups vs circles:</span> privacy circles, PLANNIT send-groups, and SEARCH groups are three separate ideas — they should probably be one "group" object used everywhere.</li>

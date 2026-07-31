@@ -235,3 +235,50 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .rec{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--line)}
 .rec:last-child{border-bottom:none}
 .rec .ic{flex:none;font-size:16px}
+
+/* ============ v4 additions ============ */
+/* livelier surface: thin multicolor ribbon on top of the page */
+.ribbon{height:4px;background:linear-gradient(90deg,var(--gym),var(--amber),var(--brand),var(--swim),var(--run),var(--study),var(--pink));border-radius:0 0 3px 3px}
+/* per-tab accent colors */
+.tab[data-t="schd"].on{border-bottom-color:var(--brand)}
+.tab[data-t="frds"].on{border-bottom-color:var(--gym)}
+.tab[data-t="glpr"].on{border-bottom-color:var(--run)}
+.tab[data-t="plannit"].on{border-bottom-color:var(--study)}
+.tab[data-t="search"].on{border-bottom-color:var(--swim)}
+/* tinted activity chips */
+.chip{background:color-mix(in srgb, var(--c, var(--other)) 8%, var(--surface));border-color:color-mix(in srgb, var(--c, var(--other)) 35%, var(--line))}
+.chip.add{background:var(--surface)}
+.card:hover{box-shadow:0 2px 4px rgba(20,30,25,.08),0 8px 22px rgba(20,30,25,.10)}
+/* collapsed slots + recs: title row only, tap to expand */
+.slot{cursor:pointer}
+.slot .body{display:none}
+.slot.open .body{display:block}
+.slot .chev,.rec .chev{margin-left:auto;color:var(--ink3);font-size:11px;flex:none;transition:transform .15s}
+.slot.open .chev,.rec.open .chev{transform:rotate(180deg)}
+.slot .del{margin-left:8px}
+.slot.done{opacity:.72}
+.slot.done .t{text-decoration:line-through;text-decoration-thickness:1.5px}
+.slot .doneb{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--ink3)}
+.slot .doneb:hover{border-color:var(--yes);color:var(--yes)}
+.slot.done .doneb{background:var(--yes);border-color:var(--yes);color:var(--on-brand)}
+.rec{cursor:pointer;flex-wrap:wrap}
+.rec .tt{font-weight:700;font-size:13px;flex:1}
+.rec .body{display:none;width:100%;padding-left:26px}
+.rec.open .body{display:block}
+/* universal workout logger */
+.logcard{border:1.5px solid color-mix(in srgb, var(--brand) 45%, var(--line))}
+.detailrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.detailrow button{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;border:1.5px solid var(--line);background:var(--surface)}
+.detailrow button.on{border-color:var(--c,var(--brand));background:color-mix(in srgb, var(--c,var(--brand)) 14%, var(--surface))}
+.logentry{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.logentry:last-child{border-bottom:none}
+.logentry .swatch{width:9px;height:9px;border-radius:50%;background:var(--c,var(--other));flex:none}
+.logentry .tags{color:var(--ink2);font-size:12px}
+.logentry .when{margin-left:auto;color:var(--ink3);font-size:11px;white-space:nowrap}
+/* goal-complete celebration */
+#fx{position:fixed;inset:0;pointer-events:none;z-index:98}
+.card.celebrate{animation:celebr .9s ease}
+@keyframes celebr{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--yes) 55%, transparent)}100%{box-shadow:0 0 0 22px transparent}}
+@media (prefers-reduced-motion:reduce){.card.celebrate{animation:none}.slot .chev,.rec .chev{transition:none}}
+/* small corner icon button */
+.iconbtn.sm{width:28px;height:28px;font-size:14px;color:var(--ink2)}
