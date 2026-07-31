@@ -9,11 +9,41 @@
 <body>
 
 <canvas id="fx"></canvas>
+
+<!-- ============ login gate (no email — username + password) ============ -->
+<div class="gate" id="authgate">
+  <div class="gatecard">
+    <div class="logo">Corbitals<span class="dot">.</span></div>
+    <div class="sub">Plan it. Post it. Do it together.</div>
+    <div class="seg" id="authseg">
+      <button class="on" data-m="in">Sign in</button>
+      <button data-m="up">Create account</button>
+    </div>
+    <div class="gfield" id="gf-name" style="display:none">
+      <label for="g-name">Display name</label>
+      <input id="g-name" placeholder="What friends see — e.g. Jad ⚡" maxlength="24" autocomplete="off">
+      <div class="hint">Can be anything (kept clean)</div>
+    </div>
+    <div class="gfield">
+      <label for="g-user">Username</label>
+      <input id="g-user" placeholder="e.g. jad_11" maxlength="20" autocomplete="username">
+      <div class="hint">3+ characters · letters, numbers and _ only · this is what friends search</div>
+    </div>
+    <div class="gfield">
+      <label for="g-pass">Password</label>
+      <input id="g-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+      <div class="hint" id="g-passhint">More than 6 characters</div>
+    </div>
+    <div class="gerr" id="g-err"></div>
+    <button class="btn primary" id="g-go" onclick="authSubmit()">Sign in</button>
+    <div class="demo">Demo friends to test with — usernames <b>maya</b>, <b>sam</b>, <b>dev</b>, <b>lena</b> (password <b>friends1</b>)</div>
+  </div>
+</div>
 <div class="app">
 <header>
   <div class="brandrow">
     <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v7</span>
+    <span class="pill">prototype v8</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -22,6 +52,7 @@
   <nav class="tabs" id="tabs">
     <button class="tab on" data-t="schd">SCHD</button>
     <button class="tab" data-t="frds">FRDS</button>
+    <button class="tab" data-t="friends">FRIENDS</button>
     <button class="tab" data-t="glpr">GLPR</button>
     <button class="tab" data-t="plannit">PLANNIT</button>
     <button class="tab" data-t="search">SEARCH</button>
@@ -105,6 +136,21 @@
     <button class="btn primary small" onclick="sendFriendReq()">Send request</button>
   </div>
   <div id="feed"></div>
+</section>
+
+<!-- ================= FRIENDS ================= -->
+<section class="panel" id="p-friends">
+  <div class="card mecard" id="mecard"></div>
+
+  <div class="eyebrow">Find friends</div>
+  <input id="fsearch" placeholder="Search by username — e.g. maya" style="width:100%;margin-bottom:10px" autocomplete="off">
+  <div class="card" id="fresults"><div class="sub">Type a username above to find people.</div></div>
+
+  <div class="eyebrow">Requests</div>
+  <div class="card" id="freqs"><div class="sub">No pending requests.</div></div>
+
+  <div class="eyebrow">My friends</div>
+  <div class="card" id="flist"><div class="sub">No friends yet — search a username above.</div></div>
 </section>
 
 <!-- ================= GLPR ================= -->
@@ -230,17 +276,16 @@
 <div class="sheet" id="sheet-profile" role="dialog" aria-label="Your profile">
   <div class="handle"></div>
   <h3>🙂 Your profile</h3>
-  <div class="sub" style="margin-bottom:12px">Kept simple on purpose — a name, a face, and a 4-digit PIN so only you can open your Corbitals on this device. No email, no password.</div>
+  <div class="sub" style="margin-bottom:12px">Your display name is what friends see; your username is what they search. No email needed.</div>
   <div class="profrow"><label for="pf-name">Display name</label>
     <input id="pf-name" placeholder="e.g. Jad" style="width:100%"></div>
   <div class="profrow"><label>Avatar</label>
     <div class="avpick" id="pf-av"></div></div>
-  <div class="profrow"><label for="pf-pin">4-digit PIN</label>
-    <input id="pf-pin" class="pinbox" inputmode="numeric" maxlength="4" placeholder="••••">
-    <span class="sub"> asked when the app opens on this device</span></div>
+  <div class="profrow"><label>Account</label>
+    <div class="sub" id="pf-account">—</div></div>
   <div style="display:flex;gap:8px;margin-top:14px">
     <button class="btn primary" onclick="saveProfile()">Save profile</button>
-    <button class="btn" onclick="lockApp()">Lock now</button>
+    <button class="btn" onclick="logoutUser()">Log out</button>
   </div>
 </div>
 

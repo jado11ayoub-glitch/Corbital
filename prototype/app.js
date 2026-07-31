@@ -52,49 +52,237 @@ document.addEventListener('click', e => {
   }
 });
 
-/* ---------- profile (simple + private: name, avatar, PIN — no email) ---------- */
+/* ============================================================
+   ACCOUNTS — username + password, no email.
+   Storage layer: localStorage today (per-device), designed so a
+   Supabase adapter replaces loadAccounts/saveAccounts + the social
+   store to make usernames globally unique across all devices.
+   ============================================================ */
 const AVATARS = ['🙂','😎','🐆','🦍','🐬','⚡','🔥','🌊','🏔️','🎧'];
-let profile = load('cb_profile', { name:'', av:'🙂', pin:'' });
+const USERS_KEY = 'cb_accounts';
 
+function loadAccounts(){ return load(USERS_KEY, {}); }
+function saveAccounts(a){ store(USERS_KEY, a); }
+
+/* password hashing — SHA-256 with per-user salt (crypto.subtle needs
+   https/localhost; fallback keeps file:// testing working) */
+async function hashPw(pw, salt){
+  const msg = salt + '::' + pw;
+  if (window.crypto && crypto.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  let h = 5381;
+  for (let i = 0; i < msg.length; i++) h = ((h << 5) + h + msg.charCodeAt(i)) >>> 0;
+  return 'fb' + h.toString(16);
+}
+const newSalt = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+/* display-name cleanliness filter */
+const BAD_WORDS = ['fuck','shit','bitch','cunt','nigg','fagg','whore','slut','retard','dick','cock','pussy','penis','vagina','rape','nazi'];
+function isCleanName(name){
+  const flat = name.toLowerCase().replace(/[^a-z]/g, '');
+  return !BAD_WORDS.some(w => flat.includes(w));
+}
+
+const USER_RE = /^[A-Za-z0-9_]{3,20}$/;
+
+/* seeded demo friends so search + requests are testable on one device */
+(async function seedDemo(){
+  const acc = loadAccounts();
+  const demo = [['maya','Maya 🏋️'], ['sam','Sam ⚡'], ['dev','Dev 📚'], ['lena','Lena 🏃']];
+  let changed = false;
+  for (const [u, dn] of demo) {
+    if (!acc[u]) {
+      const salt = newSalt();
+      acc[u] = { username:u, displayName:dn, salt, hash: await hashPw('friends1', salt),
+                 av: AVATARS[(u.length * 3) % AVATARS.length], demo:true };
+      changed = true;
+    }
+  }
+  if (changed) saveAccounts(acc);
+})();
+
+/* ---------- session + gate ---------- */
+let me = null;   /* the signed-in account object */
+let authMode = 'in';
+
+function currentUser(){
+  const u = load('cb_session', null);
+  return u ? loadAccounts()[u] || null : null;
+}
+
+$('#authseg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  authMode = b.dataset.m;
+  $$('#authseg button').forEach(x => x.classList.toggle('on', x === b));
+  $('#gf-name').style.display = authMode === 'up' ? 'block' : 'none';
+  $('#g-go').textContent = authMode === 'up' ? 'Create account' : 'Sign in';
+  $('#g-pass').autocomplete = authMode === 'up' ? 'new-password' : 'current-password';
+  $('#g-err').textContent = '';
+});
+['g-user','g-pass','g-name'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit(); });
+});
+
+async function authSubmit(){
+  const err = m => { $('#g-err').textContent = m; };
+  err('');
+  const user = $('#g-user').value.trim();
+  const pass = $('#g-pass').value;
+  const accounts = loadAccounts();
+  const key = user.toLowerCase();
+
+  if (!USER_RE.test(user)) { err('Username: 3–20 characters, only letters, numbers and _'); return; }
+
+  if (authMode === 'up') {
+    let dn = $('#g-name').value.trim() || user;
+    if (!isCleanName(dn)) { err('Pick a friendlier display name 🙂'); return; }
+    if (pass.length <= 6) { err('Password has to be more than 6 characters'); return; }
+    if (accounts[key]) { err('That username is taken — try another'); return; }
+    const salt = newSalt();
+    accounts[key] = { username:user, displayName:dn, salt, hash: await hashPw(pass, salt),
+                      av: AVATARS[Math.floor(Math.random() * AVATARS.length)] };
+    saveAccounts(accounts);
+    store('cb_session', key);
+    enterApp();
+    toast(`Welcome to Corbitals, ${dn}!`);
+  } else {
+    const acc = accounts[key];
+    if (!acc) { err('No account with that username on this device'); return; }
+    if (await hashPw(pass, acc.salt) !== acc.hash) { err('Wrong password'); return; }
+    store('cb_session', key);
+    enterApp();
+    toast(`Welcome back, ${acc.displayName}`);
+  }
+}
+
+function enterApp(){
+  me = currentUser();
+  if (!me) { $('#authgate').classList.remove('hidden'); return; }
+  $('#authgate').classList.add('hidden');
+  $('#profilebtn').textContent = me.av;
+  $('#pf-name').value = me.displayName;
+  $('#pf-account').textContent = '@' + me.username + (me.demo ? ' · demo account' : '');
+  $$('#pf-av button').forEach(b => b.classList.toggle('on', b.textContent === me.av));
+  drawFriendsTab();
+}
+
+function logoutUser(){
+  localStorage.removeItem('cb_session');
+  me = null;
+  closeSheets();
+  $('#authgate').classList.remove('hidden');
+  $('#g-pass').value = '';
+}
+
+/* ---------- profile sheet (avatar + display name on the account) ---------- */
 (function initProfile(){
   const cp = $('#pf-av');
   AVATARS.forEach(a => {
     const b = document.createElement('button');
     b.textContent = a;
-    if (a === profile.av) b.classList.add('on');
-    b.onclick = () => { profile.av = a; cp.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+    b.onclick = () => { if (me) me.av = a; cp.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
     cp.appendChild(b);
   });
-  $('#pf-name').value = profile.name;
-  $('#pf-pin').value = profile.pin;
-  $('#profilebtn').textContent = profile.av;
-  if (profile.pin) askPin();
 })();
 
 function saveProfile(){
-  const name = $('#pf-name').value.trim();
-  const pin = $('#pf-pin').value.trim();
-  if (pin && !/^\d{4}$/.test(pin)) { toast('PIN needs to be exactly 4 digits'); return; }
-  profile.name = name;
-  profile.pin = pin;
-  store('cb_profile', profile);
-  $('#profilebtn').textContent = profile.av;
+  if (!me) return;
+  const dn = $('#pf-name').value.trim() || me.username;
+  if (!isCleanName(dn)) { toast('Pick a friendlier display name 🙂'); return; }
+  me.displayName = dn;
+  const accounts = loadAccounts();
+  accounts[me.username.toLowerCase()] = me;
+  saveAccounts(accounts);
+  $('#profilebtn').textContent = me.av;
   closeSheets();
-  toast(name ? `Saved — hey ${name} ${profile.av}` : 'Profile saved');
+  drawFriendsTab();
+  toast(`Saved — hey ${dn} ${me.av}`);
 }
 
-function askPin(){
-  for (let i = 0; i < 3; i++) {
-    const got = prompt(`Corbitals is locked ${profile.av}\nEnter your 4-digit PIN:`);
-    if (got === null) break;                 /* cancelled — stay soft-locked in prototype */
-    if (got === profile.pin) { toast(`Unlocked — welcome back${profile.name ? ', ' + profile.name : ''}`); return; }
-  }
-  toast('Prototype note: real lock screen comes with real accounts');
+/* ---------- friends: search, requests, list ---------- */
+function socialKey(){ return 'cb_social_' + me.username.toLowerCase(); }
+function loadSocial(){ return load(socialKey(), { friends:[], reqIn:[], reqOut:[] }); }
+function saveSocial(x){ store(socialKey(), x); }
+
+function frowHTML(acc, right){
+  return `<div class="frow"><span class="fav2">${acc.av}</span>` +
+    `<div class="g"><div class="dn">${acc.displayName}</div><div class="un">@${acc.username}</div></div>${right}</div>`;
 }
-function lockApp(){
-  if (!profile.pin) { toast('Set a 4-digit PIN first, then Save'); return; }
-  closeSheets();
-  askPin();
+
+function drawFriendsTab(){
+  if (!me) return;
+  const soc = loadSocial();
+  const accounts = loadAccounts();
+  $('#mecard').innerHTML =
+    `<span class="fav2">${me.av}</span>` +
+    `<div class="g"><div class="dn">${me.displayName}</div><div class="un">@${me.username} · ${soc.friends.length} friend${soc.friends.length === 1 ? '' : 's'}</div></div>` +
+    `<button class="btn small" onclick="openSheet('profile')">Edit</button>`;
+
+  const inReqs = soc.reqIn.map(u => accounts[u]).filter(Boolean);
+  const outReqs = soc.reqOut.map(u => accounts[u]).filter(Boolean);
+  $('#freqs').innerHTML = (inReqs.length || outReqs.length)
+    ? inReqs.map(a => frowHTML(a, `<button class="btn primary small" onclick="acceptReq('${a.username}')">Accept</button>`)).join('') +
+      outReqs.map(a => frowHTML(a, `<span class="un">Requested…</span>`)).join('')
+    : '<div class="sub">No pending requests.</div>';
+
+  const friends = soc.friends.map(u => accounts[u]).filter(Boolean);
+  $('#flist').innerHTML = friends.length
+    ? friends.map(a => frowHTML(a, '<span class="st">✓ Friends</span>')).join('')
+    : '<div class="sub">No friends yet — search a username above.</div>';
+  drawFSearch();
+}
+
+function drawFSearch(){
+  const q = $('#fsearch').value.trim().toLowerCase();
+  const box = $('#fresults');
+  if (!q) { box.innerHTML = '<div class="sub">Type a username above to find people.</div>'; return; }
+  const soc = loadSocial();
+  const accounts = loadAccounts();
+  const hits = Object.values(accounts).filter(a =>
+    a.username.toLowerCase() !== me.username.toLowerCase() &&
+    (a.username.toLowerCase().includes(q) || a.displayName.toLowerCase().includes(q))
+  ).slice(0, 8);
+  if (!hits.length) { box.innerHTML = '<div class="sub">Nobody found — usernames are exact, ask your friend for theirs.</div>'; return; }
+  box.innerHTML = hits.map(a => {
+    const u = a.username.toLowerCase();
+    let right;
+    if (soc.friends.includes(u)) right = '<span class="st">✓ Friends</span>';
+    else if (soc.reqOut.includes(u)) right = '<span class="un">Requested…</span>';
+    else if (soc.reqIn.includes(u)) right = `<button class="btn primary small" onclick="acceptReq('${u}')">Accept</button>`;
+    else right = `<button class="btn primary small" onclick="sendReq('${u}')">＋ Add</button>`;
+    return frowHTML(a, right);
+  }).join('');
+}
+$('#fsearch').addEventListener('input', drawFSearch);
+
+function sendReq(u){
+  const soc = loadSocial();
+  if (!soc.reqOut.includes(u)) soc.reqOut.push(u);
+  saveSocial(soc);
+  drawFriendsTab();
+  const acc = loadAccounts()[u];
+  toast(`Request sent to @${u}`);
+  if (acc && acc.demo) {
+    setTimeout(() => {
+      const s2 = loadSocial();
+      s2.reqOut = s2.reqOut.filter(x => x !== u);
+      if (!s2.friends.includes(u)) s2.friends.push(u);
+      saveSocial(s2);
+      drawFriendsTab();
+      toast(`${acc.displayName} accepted! 🎉 (demo — real friends accept from their own phone once the backend is live)`);
+    }, 1500);
+  }
+}
+function acceptReq(u){
+  const soc = loadSocial();
+  soc.reqIn = soc.reqIn.filter(x => x !== u);
+  if (!soc.friends.includes(u)) soc.friends.push(u);
+  saveSocial(soc);
+  drawFriendsTab();
+  toast(`You and @${u} are now friends 🤝`);
 }
 
 /* ---------- SCHD: multi-week calendar ---------- */
@@ -422,7 +610,7 @@ function drawRecs(){
 }
 
 /* ---------- FRDS: add friend ---------- */
-function toggleAddFriend(){ $('#addfriend').classList.toggle('show'); $('#af-name').focus(); }
+function toggleAddFriend(){ document.querySelector('[data-t="friends"]').click(); $('#fsearch').focus(); }
 function sendFriendReq(){
   const n = $('#af-name').value.trim();
   if (!n) { toast('Type a name or @handle first'); return; }
@@ -962,3 +1150,4 @@ drawSwim();
 buildGrid(true);
 buildReceivedGrid();
 drawSearch();
+enterApp();
