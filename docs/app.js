@@ -27,11 +27,14 @@ function load(key, fallback){
 }
 
 /* ---------- main tabs ---------- */
+function showPanel(t){
+  const litTab = t === 'friends' ? 'frds' : t;
+  $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === litTab));
+  $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
+}
 $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
-  if (!b) return;
-  $$('.tab').forEach(t => t.classList.toggle('on', t === b));
-  $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + b.dataset.t));
+  if (b) showPanel(b.dataset.t);
 });
 
 /* ---------- audience selectors ----------
@@ -126,7 +129,7 @@ function maskEmail(e){
 /* DEMO EMAIL: real delivery comes free with the backend (Supabase /
    Resend). Until then the code is shown on screen, clearly labeled. */
 function sendCode(email, code){
-  toast(`✉️ DEMO EMAIL to ${maskEmail(email)}: your Corbitals code is ${code} (real emails arrive once the backend is live)`);
+  toast(`✉️ DEMO EMAIL to ${maskEmail(email)}: your Corbits code is ${code} (real emails arrive once the backend is live)`);
 }
 const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -261,7 +264,7 @@ async function authSubmit(){
     saveAccounts(accounts);
     store('cb_session', key);
     enterApp();
-    toast(`Welcome to Corbitals, ${dn}!`);
+    toast(`Welcome to Corbits, ${dn}!`);
   } else {
     const acc = accounts[key];
     if (!acc) { err('No account with that username on this device'); return; }
@@ -780,7 +783,7 @@ function drawRecs(){
 }
 
 /* ---------- FRDS: add friend ---------- */
-function toggleAddFriend(){ document.querySelector('[data-t="friends"]').click(); $('#fsearch').focus(); }
+function toggleAddFriend(){ showPanel('friends'); $('#fsearch').focus(); }
 function sendFriendReq(){
   const n = $('#af-name').value.trim();
   if (!n) { toast('Type a name or @handle first'); return; }

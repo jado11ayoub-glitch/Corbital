@@ -324,3 +324,13 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 
 /* v12: unmissable OPTIONAL badge on the email field */
 .optbadge{display:inline-block;margin-left:6px;padding:2px 9px;border-radius:999px;background:var(--yes-soft);color:var(--yes);font-size:10px;font-weight:800;letter-spacing:.08em;vertical-align:1px}
+
+/* ============ v14: Corbits rename + logger hierarchy ============ */
+/* mains are unmistakably bigger than their sub-sections */
+.lgr-label{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-top:12px}
+.detailrow.mains button{font-size:16px;font-weight:800;padding:10px 20px;border-width:2px;border-radius:14px}
+.detailrow.subs button{font-size:11px;font-weight:600;padding:4px 11px;opacity:.95}
+.detailrow.subs button.on{font-weight:700}
+/* composer: same visual rule — subs stay small */
+#c-subs button{font-size:11px;padding:4px 11px}
+.tab{min-width:56px;font-size:12.5px}

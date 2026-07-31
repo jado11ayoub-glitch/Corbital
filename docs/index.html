@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Corbitals</title>
+<title>Corbits</title>
 <link rel="stylesheet" href="styles.css">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Corbitals">
+<meta name="apple-mobile-web-app-title" content="Corbits">
 </head>
 <body>
 
@@ -21,7 +21,7 @@
 <!-- ============ login gate (no email — username + password) ============ -->
 <div class="gate" id="authgate">
   <div class="gatecard">
-    <div class="logo">Corbitals<span class="dot">.</span></div>
+    <div class="logo">Corbits<span class="dot">.</span></div>
     <div class="sub">Plan it. Post it. Do it together.</div>
     <div class="seg" id="authseg">
       <button class="on" data-m="in">Sign in</button>
@@ -70,8 +70,8 @@
 <div class="app">
 <header>
   <div class="brandrow">
-    <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v12</span>
+    <div class="logo">Corbits<span class="dot">.</span></div>
+    <span class="pill">prototype v14</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -79,9 +79,8 @@
   </div>
   <nav class="tabs" id="tabs">
     <button class="tab on" data-t="schd">SCHD</button>
-    <button class="tab" data-t="frds">FRDS</button>
-    <button class="tab" data-t="friends">FRIENDS</button>
-    <button class="tab" data-t="glpr">GLPR</button>
+    <button class="tab" data-t="frds">FRIENDS</button>
+    <button class="tab" data-t="glpr">MILESTONES</button>
     <button class="tab" data-t="plannit">PLANNIT</button>
     <button class="tab" data-t="search">SEARCH</button>
   </nav>
@@ -155,7 +154,7 @@
 <!-- ================= FRDS ================= -->
 <section class="panel" id="p-frds">
   <div style="display:flex;align-items:center;gap:8px">
-    <div class="eyebrow" style="margin:0">Friends feed</div>
+    <div class="eyebrow" style="margin:0">Feed</div>
     <div class="spacer" style="flex:1"></div>
     <button class="btn primary small" onclick="toggleAddFriend()">＋ Add friend</button>
   </div>
@@ -166,8 +165,12 @@
   <div id="feed"></div>
 </section>
 
-<!-- ================= FRIENDS ================= -->
+<!-- ================= ADD FRIENDS (opened from the feed) ================= -->
 <section class="panel" id="p-friends">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <button class="btn small" onclick="showPanel('frds')">← Back to feed</button>
+    <div class="eyebrow" style="margin:0">Add friends</div>
+  </div>
   <div class="card mecard" id="mecard"></div>
 
   <div class="eyebrow">Find friends</div>
@@ -183,16 +186,18 @@
 
 <!-- ================= GLPR ================= -->
 <section class="panel" id="p-glpr">
-  <div class="eyebrow">Your goals &amp; progress</div>
+  <div class="eyebrow">Your milestones &amp; trajectory</div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
     <button class="btn primary" onclick="toast('New-goal wizard: pick a tracker type below — every activity maps to one of the three')">＋ New goal</button>
   </div>
 
   <div class="card logcard">
     <div class="goalhead"><h2>Log a workout</h2><span class="pill type">One log · fills every section</span></div>
-    <div class="sub">Pick what you did — it lands in your weekly chart, all-time stats, and any matching progress tracker at once. No re-logging.</div>
-    <div class="detailrow" id="log-acts"></div>
-    <div class="detailrow" id="log-details"></div>
+    <div class="sub">Pick what you did — it lands in your weekly chart, all-time stats, and any matching trajectory tracker at once. No re-logging.</div>
+    <div class="lgr-label">Activity</div>
+    <div class="detailrow mains" id="log-acts"></div>
+    <div class="lgr-label">Sub-section <span style="color:var(--ink3)">· part of the activity above</span></div>
+    <div class="detailrow subs" id="log-details"></div>
     <div id="log-specs"></div>
     <div class="actions"><button class="btn primary" onclick="logWorkout()">Log it</button></div>
     <div id="logbook" style="margin-top:10px"></div>
@@ -207,7 +212,7 @@
 
   <div class="card">
     <div class="goalhead"><h2>All-time stats</h2><span class="pill type">Totals · month / year / ever</span></div>
-    <div class="sub">Not just per-week — long-run counts of everything you do. Grows automatically every time you post a plan.</div>
+    <div class="sub">Not just per-week — long-run counts of everything you do. Grows automatically every time you log.</div>
     <div id="totals" style="margin-top:6px"></div>
   </div>
 
