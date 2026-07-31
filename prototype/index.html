@@ -29,15 +29,15 @@
       <input id="g-user" placeholder="e.g. jad_11" maxlength="20" autocomplete="username">
       <div class="hint">3+ characters · letters, numbers and _ only · this is what friends search</div>
     </div>
-    <div class="gfield" id="gf-phone" style="display:none">
-      <label for="g-phone">Phone number <span style="font-weight:600;color:var(--ink3)">— optional · better for safety</span></label>
-      <input id="g-phone" type="tel" placeholder="e.g. 416 555 0192" autocomplete="tel">
-      <div class="hint">Used only to recover a forgotten password</div>
+    <div class="gfield" id="gf-email" style="display:none">
+      <label for="g-email">Email <span style="font-weight:600;color:var(--ink3)">— optional · better for safety</span></label>
+      <input id="g-email" type="email" placeholder="e.g. jad@gmail.com" autocomplete="email">
+      <div class="hint">Used only to recover a forgotten password — never shown to anyone</div>
     </div>
     <div class="gfield" id="gf-code" style="display:none">
       <label for="g-code">Verification code</label>
       <input id="g-code" inputmode="numeric" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code">
-      <div class="hint">Sent to the phone linked to this account</div>
+      <div class="hint">Sent to the email linked to this account</div>
     </div>
     <div class="gfield">
       <label for="g-pass" id="g-passlabel">Password</label>
@@ -54,7 +54,7 @@
 <header>
   <div class="brandrow">
     <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v9</span>
+    <span class="pill">prototype v10</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -292,9 +292,9 @@
     <input id="pf-name" placeholder="e.g. Jad" style="width:100%"></div>
   <div class="profrow"><label>Avatar</label>
     <div class="avpick" id="pf-av"></div></div>
-  <div class="profrow"><label for="pf-phone">Phone number <span style="font-weight:600;color:var(--ink3)">— optional · better for safety</span></label>
-    <input id="pf-phone" type="tel" placeholder="e.g. 416 555 0192" style="width:100%">
-    <div class="sub" style="margin-top:3px">Lets you recover a forgotten password with a code texted to you</div></div>
+  <div class="profrow"><label for="pf-email">Email <span style="font-weight:600;color:var(--ink3)">— optional · better for safety</span></label>
+    <input id="pf-email" type="email" placeholder="e.g. jad@gmail.com" style="width:100%">
+    <div class="sub" style="margin-top:3px">Lets you recover a forgotten password with a code emailed to you</div></div>
   <div class="profrow"><label>Account</label>
     <div class="sub" id="pf-account">—</div>
     <button class="btn small" style="margin-top:8px" onclick="changePassword()">Change password</button></div>

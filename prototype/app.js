@@ -114,16 +114,19 @@ function isCleanName(name){
 
 const USER_RE = /^[A-Za-z0-9_]{3,20}$/;
 
-/* phone: optional. Kept as digits only; shown masked everywhere. */
-function normPhone(raw){
-  const d = raw.replace(/[^0-9]/g, '');
-  return d.length >= 10 && d.length <= 15 ? d : null;
+/* email: optional, recovery only. Stored lowercase; shown masked. */
+function normEmail(raw){
+  const e = raw.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) ? e : null;
 }
-const maskPhone = d => '•••\u2009' + d.slice(-4);
-/* DEMO SMS: a real text needs the backend + an SMS provider (Twilio via
-   Supabase). Until then the code is shown on screen, clearly labeled. */
-function sendSms(phone, code){
-  toast(`📱 DEMO SMS to ${maskPhone(phone)}: your Corbitals code is ${code} (real texts arrive once the backend is live)`);
+function maskEmail(e){
+  const [n, d] = e.split('@');
+  return n[0] + '•••@' + d;
+}
+/* DEMO EMAIL: real delivery comes free with the backend (Supabase /
+   Resend). Until then the code is shown on screen, clearly labeled. */
+function sendCode(email, code){
+  toast(`✉️ DEMO EMAIL to ${maskEmail(email)}: your Corbitals code is ${code} (real emails arrive once the backend is live)`);
 }
 const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -156,7 +159,7 @@ function setAuthMode(m){
   authMode = m;
   $$('#authseg button').forEach(x => x.classList.toggle('on', x.dataset.m === m));
   $('#gf-name').style.display = m === 'up' ? 'block' : 'none';
-  $('#gf-phone').style.display = m === 'up' ? 'block' : 'none';
+  $('#gf-email').style.display = m === 'up' ? 'block' : 'none';
   $('#gf-code').style.display = 'none';
   $('#g-pass').parentElement.style.display = 'block';
   $('#g-passlabel').textContent = 'Password';
@@ -171,16 +174,16 @@ $('#authseg').addEventListener('click', e => {
   if (b) setAuthMode(b.dataset.m);
 });
 
-/* ---------- forgot password (needs a linked phone) ---------- */
+/* ---------- forgot password (needs a linked email) ---------- */
 let fp = null;   /* { stage, key, code } */
 function startForgot(){
   const key = $('#g-user').value.trim().toLowerCase();
   const acc = loadAccounts()[key];
   if (!USER_RE.test(key)) { $('#g-err').textContent = 'Type your username first, then tap Forgot password'; return; }
   if (!acc) { $('#g-err').textContent = 'No account with that username on this device'; return; }
-  if (!acc.phone) { $('#g-err').textContent = 'No phone linked to this account, so the password can\'t be reset — add one in Profile next time'; return; }
+  if (!acc.email) { $('#g-err').textContent = 'No email linked to this account, so the password can\'t be reset — add one in Profile next time'; return; }
   fp = { stage:'code', key, code: newCode() };
-  sendSms(acc.phone, fp.code);
+  sendCode(acc.email, fp.code);
   $('#gf-code').style.display = 'block';
   $('#g-pass').parentElement.style.display = 'none';
   $('#g-go').textContent = 'Verify code';
@@ -235,14 +238,14 @@ async function authSubmit(){
     if (!isCleanName(dn)) { err('Pick a friendlier display name 🙂'); return; }
     if (pass.length <= 6) { err('Password has to be more than 6 characters'); return; }
     if (accounts[key]) { err('That username is taken — try another'); return; }
-    const rawPhone = $('#g-phone').value.trim();
-    let phone = null;
-    if (rawPhone) {
-      phone = normPhone(rawPhone);
-      if (!phone) { err('That phone number doesn\'t look right — digits only, 10+ of them (or leave it empty)'); return; }
+    const rawEmail = $('#g-email').value.trim();
+    let email = null;
+    if (rawEmail) {
+      email = normEmail(rawEmail);
+      if (!email) { err('That email doesn\'t look right (or leave it empty)'); return; }
     }
     const salt = newSalt();
-    accounts[key] = { username:user, displayName:dn, salt, hash: await hashPw(pass, salt), phone,
+    accounts[key] = { username:user, displayName:dn, salt, hash: await hashPw(pass, salt), email,
                       av: AVATARS[Math.floor(Math.random() * AVATARS.length)] };
     saveAccounts(accounts);
     store('cb_session', key);
@@ -265,8 +268,7 @@ function enterApp(){
   $('#profilebtn').textContent = me.av;
   $('#pf-name').value = me.displayName;
   $('#pf-account').textContent = '@' + me.username + (me.demo ? ' · demo account' : '');
-  $('#pf-phone').value = me.phone ? maskPhone(me.phone) : '';
-  $('#pf-phone').dataset.masked = me.phone ? '1' : '';
+  $('#pf-email').value = me.email ? maskEmail(me.email) : '';
   $$('#pf-av button').forEach(b => b.classList.toggle('on', b.textContent === me.av));
   drawFriendsTab();
 }
@@ -295,12 +297,12 @@ function saveProfile(){
   const dn = $('#pf-name').value.trim() || me.username;
   if (!isCleanName(dn)) { toast('Pick a friendlier display name 🙂'); return; }
   me.displayName = dn;
-  const rawPhone = $('#pf-phone').value.trim();
-  if (!rawPhone) { me.phone = null; }
-  else if (!rawPhone.includes('•')) {
-    const ph = normPhone(rawPhone);
-    if (!ph) { toast('That phone number doesn\'t look right — digits only, 10+ of them'); return; }
-    me.phone = ph;
+  const rawEmail = $('#pf-email').value.trim();
+  if (!rawEmail) { me.email = null; }
+  else if (!rawEmail.includes('•')) {
+    const em = normEmail(rawEmail);
+    if (!em) { toast('That email doesn\'t look right'); return; }
+    me.email = em;
   }
   const accounts = loadAccounts();
   accounts[me.username.toLowerCase()] = me;
@@ -311,17 +313,17 @@ function saveProfile(){
   toast(`Saved — hey ${dn} ${me.av}`);
 }
 
-/* ---------- change password (code if phone linked, else current password) ---------- */
+/* ---------- change password (code if email linked, else current password) ---------- */
 async function changePassword(){
   if (!me) return;
-  if (me.phone) {
+  if (me.email) {
     const code = newCode();
-    sendSms(me.phone, code);
-    const got = prompt(`A verification code was sent to ${maskPhone(me.phone)}.\nEnter the 6-digit code:`);
+    sendCode(me.email, code);
+    const got = prompt(`A verification code was sent to ${maskEmail(me.email)}.\nEnter the 6-digit code:`);
     if (got === null) return;
     if (got.trim() !== code) { toast('Wrong code — password unchanged'); return; }
   } else {
-    const cur = prompt('No phone linked — enter your current password instead:');
+    const cur = prompt('No email linked — enter your current password instead:');
     if (cur === null) return;
     if (!(await verifyPw(cur, me))) { toast('Wrong password — nothing changed'); return; }
   }
