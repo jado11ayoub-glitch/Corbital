@@ -64,17 +64,44 @@ const USERS_KEY = 'cb_accounts';
 function loadAccounts(){ return load(USERS_KEY, {}); }
 function saveAccounts(a){ store(USERS_KEY, a); }
 
-/* password hashing — SHA-256 with per-user salt (crypto.subtle needs
-   https/localhost; fallback keeps file:// testing working) */
+/* password hashing — PBKDF2-HMAC-SHA256, 100k rounds, per-user salt.
+   Deliberately slow to make guessing expensive. Passwords are never
+   stored or transmitted in readable form; only this derived hash is
+   kept, and only on the user's own device. Legacy (v1 sha256) hashes
+   are verified once and silently upgraded on successful sign-in. */
+const PBKDF2_ITERS = 100000;
 async function hashPw(pw, salt){
-  const msg = salt + '::' + pw;
   if (window.crypto && crypto.subtle) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
-    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+    const keyMat = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits(
+      { name:'PBKDF2', hash:'SHA-256', salt: new TextEncoder().encode(salt), iterations: PBKDF2_ITERS },
+      keyMat, 256);
+    return 'v2:' + [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
+  /* non-secure contexts (file://) — dev fallback only */
   let h = 5381;
+  const msg = salt + '::' + pw;
   for (let i = 0; i < msg.length; i++) h = ((h << 5) + h + msg.charCodeAt(i)) >>> 0;
   return 'fb' + h.toString(16);
+}
+async function legacyHashPw(pw, salt){
+  if (!(window.crypto && crypto.subtle)) return null;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + '::' + pw));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+/* verify against current scheme, fall back to legacy, upgrade in place */
+async function verifyPw(pw, acc){
+  if (await hashPw(pw, acc.salt) === acc.hash) return true;
+  const legacy = await legacyHashPw(pw, acc.salt);
+  if (legacy && legacy === acc.hash) {
+    acc.salt = newSalt();
+    acc.hash = await hashPw(pw, acc.salt);
+    const accounts = loadAccounts();
+    accounts[acc.username.toLowerCase()] = acc;
+    saveAccounts(accounts);
+    return true;
+  }
+  return false;
 }
 const newSalt = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -86,6 +113,19 @@ function isCleanName(name){
 }
 
 const USER_RE = /^[A-Za-z0-9_]{3,20}$/;
+
+/* phone: optional. Kept as digits only; shown masked everywhere. */
+function normPhone(raw){
+  const d = raw.replace(/[^0-9]/g, '');
+  return d.length >= 10 && d.length <= 15 ? d : null;
+}
+const maskPhone = d => '•••\u2009' + d.slice(-4);
+/* DEMO SMS: a real text needs the backend + an SMS provider (Twilio via
+   Supabase). Until then the code is shown on screen, clearly labeled. */
+function sendSms(phone, code){
+  toast(`📱 DEMO SMS to ${maskPhone(phone)}: your Corbitals code is ${code} (real texts arrive once the backend is live)`);
+}
+const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 /* seeded demo friends so search + requests are testable on one device */
 (async function seedDemo(){
@@ -112,16 +152,41 @@ function currentUser(){
   return u ? loadAccounts()[u] || null : null;
 }
 
+function setAuthMode(m){
+  authMode = m;
+  $$('#authseg button').forEach(x => x.classList.toggle('on', x.dataset.m === m));
+  $('#gf-name').style.display = m === 'up' ? 'block' : 'none';
+  $('#gf-phone').style.display = m === 'up' ? 'block' : 'none';
+  $('#gf-code').style.display = 'none';
+  $('#g-pass').parentElement.style.display = 'block';
+  $('#g-passlabel').textContent = 'Password';
+  $('#g-forgot').style.display = m === 'in' ? 'inline-flex' : 'none';
+  $('#g-go').textContent = m === 'up' ? 'Create account' : 'Sign in';
+  $('#g-pass').autocomplete = m === 'up' ? 'new-password' : 'current-password';
+  $('#g-err').textContent = '';
+  fp = null;
+}
 $('#authseg').addEventListener('click', e => {
   const b = e.target.closest('button');
-  if (!b) return;
-  authMode = b.dataset.m;
-  $$('#authseg button').forEach(x => x.classList.toggle('on', x === b));
-  $('#gf-name').style.display = authMode === 'up' ? 'block' : 'none';
-  $('#g-go').textContent = authMode === 'up' ? 'Create account' : 'Sign in';
-  $('#g-pass').autocomplete = authMode === 'up' ? 'new-password' : 'current-password';
-  $('#g-err').textContent = '';
+  if (b) setAuthMode(b.dataset.m);
 });
+
+/* ---------- forgot password (needs a linked phone) ---------- */
+let fp = null;   /* { stage, key, code } */
+function startForgot(){
+  const key = $('#g-user').value.trim().toLowerCase();
+  const acc = loadAccounts()[key];
+  if (!USER_RE.test(key)) { $('#g-err').textContent = 'Type your username first, then tap Forgot password'; return; }
+  if (!acc) { $('#g-err').textContent = 'No account with that username on this device'; return; }
+  if (!acc.phone) { $('#g-err').textContent = 'No phone linked to this account, so the password can\'t be reset — add one in Profile next time'; return; }
+  fp = { stage:'code', key, code: newCode() };
+  sendSms(acc.phone, fp.code);
+  $('#gf-code').style.display = 'block';
+  $('#g-pass').parentElement.style.display = 'none';
+  $('#g-go').textContent = 'Verify code';
+  $('#g-err').textContent = '';
+  $('#g-code').focus();
+}
 ['g-user','g-pass','g-name'].forEach(id => {
   document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit(); });
 });
@@ -129,6 +194,35 @@ $('#authseg').addEventListener('click', e => {
 async function authSubmit(){
   const err = m => { $('#g-err').textContent = m; };
   err('');
+  if (fp) {
+    const accounts = loadAccounts();
+    const acc = accounts[fp.key];
+    if (fp.stage === 'code') {
+      if ($('#g-code').value.trim() !== fp.code) { err('Wrong code — check the text we sent'); return; }
+      fp.stage = 'newpass';
+      $('#gf-code').style.display = 'none';
+      $('#g-pass').parentElement.style.display = 'block';
+      $('#g-passlabel').textContent = 'New password';
+      $('#g-pass').value = '';
+      $('#g-go').textContent = 'Set new password';
+      $('#g-pass').focus();
+      return;
+    }
+    if (fp.stage === 'newpass') {
+      const np = $('#g-pass').value;
+      if (np.length <= 6) { err('Password has to be more than 6 characters'); return; }
+      acc.salt = newSalt();
+      acc.hash = await hashPw(np, acc.salt);
+      accounts[fp.key] = acc;
+      saveAccounts(accounts);
+      store('cb_session', fp.key);
+      fp = null;
+      setAuthMode('in');
+      enterApp();
+      toast('Password reset — you\'re signed in ✓');
+      return;
+    }
+  }
   const user = $('#g-user').value.trim();
   const pass = $('#g-pass').value;
   const accounts = loadAccounts();
@@ -141,8 +235,14 @@ async function authSubmit(){
     if (!isCleanName(dn)) { err('Pick a friendlier display name 🙂'); return; }
     if (pass.length <= 6) { err('Password has to be more than 6 characters'); return; }
     if (accounts[key]) { err('That username is taken — try another'); return; }
+    const rawPhone = $('#g-phone').value.trim();
+    let phone = null;
+    if (rawPhone) {
+      phone = normPhone(rawPhone);
+      if (!phone) { err('That phone number doesn\'t look right — digits only, 10+ of them (or leave it empty)'); return; }
+    }
     const salt = newSalt();
-    accounts[key] = { username:user, displayName:dn, salt, hash: await hashPw(pass, salt),
+    accounts[key] = { username:user, displayName:dn, salt, hash: await hashPw(pass, salt), phone,
                       av: AVATARS[Math.floor(Math.random() * AVATARS.length)] };
     saveAccounts(accounts);
     store('cb_session', key);
@@ -151,7 +251,7 @@ async function authSubmit(){
   } else {
     const acc = accounts[key];
     if (!acc) { err('No account with that username on this device'); return; }
-    if (await hashPw(pass, acc.salt) !== acc.hash) { err('Wrong password'); return; }
+    if (!(await verifyPw(pass, acc))) { err('Wrong password'); return; }
     store('cb_session', key);
     enterApp();
     toast(`Welcome back, ${acc.displayName}`);
@@ -165,6 +265,8 @@ function enterApp(){
   $('#profilebtn').textContent = me.av;
   $('#pf-name').value = me.displayName;
   $('#pf-account').textContent = '@' + me.username + (me.demo ? ' · demo account' : '');
+  $('#pf-phone').value = me.phone ? maskPhone(me.phone) : '';
+  $('#pf-phone').dataset.masked = me.phone ? '1' : '';
   $$('#pf-av button').forEach(b => b.classList.toggle('on', b.textContent === me.av));
   drawFriendsTab();
 }
@@ -193,6 +295,13 @@ function saveProfile(){
   const dn = $('#pf-name').value.trim() || me.username;
   if (!isCleanName(dn)) { toast('Pick a friendlier display name 🙂'); return; }
   me.displayName = dn;
+  const rawPhone = $('#pf-phone').value.trim();
+  if (!rawPhone) { me.phone = null; }
+  else if (!rawPhone.includes('•')) {
+    const ph = normPhone(rawPhone);
+    if (!ph) { toast('That phone number doesn\'t look right — digits only, 10+ of them'); return; }
+    me.phone = ph;
+  }
   const accounts = loadAccounts();
   accounts[me.username.toLowerCase()] = me;
   saveAccounts(accounts);
@@ -200,6 +309,31 @@ function saveProfile(){
   closeSheets();
   drawFriendsTab();
   toast(`Saved — hey ${dn} ${me.av}`);
+}
+
+/* ---------- change password (code if phone linked, else current password) ---------- */
+async function changePassword(){
+  if (!me) return;
+  if (me.phone) {
+    const code = newCode();
+    sendSms(me.phone, code);
+    const got = prompt(`A verification code was sent to ${maskPhone(me.phone)}.\nEnter the 6-digit code:`);
+    if (got === null) return;
+    if (got.trim() !== code) { toast('Wrong code — password unchanged'); return; }
+  } else {
+    const cur = prompt('No phone linked — enter your current password instead:');
+    if (cur === null) return;
+    if (!(await verifyPw(cur, me))) { toast('Wrong password — nothing changed'); return; }
+  }
+  const np = prompt('New password (more than 6 characters):');
+  if (np === null) return;
+  if (np.length <= 6) { toast('Too short — password has to be more than 6 characters'); return; }
+  me.salt = newSalt();
+  me.hash = await hashPw(np, me.salt);
+  const accounts = loadAccounts();
+  accounts[me.username.toLowerCase()] = me;
+  saveAccounts(accounts);
+  toast('Password changed ✓');
 }
 
 /* ---------- friends: search, requests, list ---------- */
