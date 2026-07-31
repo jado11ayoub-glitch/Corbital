@@ -38,9 +38,9 @@
       <div class="hint">3+ characters · letters, numbers and _ only · this is what friends search</div>
     </div>
     <div class="gfield" id="gf-email" style="display:none">
-      <label for="g-email">Email <span style="font-weight:600;color:var(--ink3)">— optional · better for safety</span></label>
-      <input id="g-email" type="email" placeholder="e.g. jad@gmail.com" autocomplete="email">
-      <div class="hint">Used only to recover a forgotten password — never shown to anyone</div>
+      <label for="g-email">Email <span class="optbadge">OPTIONAL</span></label>
+      <input id="g-email" type="email" placeholder="Totally fine to skip this" autocomplete="email">
+      <div class="hint">You don't need an email to join — adding one just lets you recover a forgotten password. Never shown to anyone.</div>
     </div>
     <div class="gfield" id="gf-code" style="display:none">
       <label for="g-code">Verification code</label>
@@ -63,7 +63,7 @@
 <header>
   <div class="brandrow">
     <div class="logo">Corbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v11</span>
+    <span class="pill">prototype v12</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -301,9 +301,9 @@
     <input id="pf-name" placeholder="e.g. Jad" style="width:100%"></div>
   <div class="profrow"><label>Avatar</label>
     <div class="avpick" id="pf-av"></div></div>
-  <div class="profrow"><label for="pf-email">Email <span style="font-weight:600;color:var(--ink3)">— optional · better for safety</span></label>
-    <input id="pf-email" type="email" placeholder="e.g. jad@gmail.com" style="width:100%">
-    <div class="sub" style="margin-top:3px">Lets you recover a forgotten password with a code emailed to you</div></div>
+  <div class="profrow"><label for="pf-email">Email <span class="optbadge">OPTIONAL</span></label>
+    <input id="pf-email" type="email" placeholder="None linked — totally fine" style="width:100%">
+    <div class="sub" style="margin-top:3px">Optional — lets you recover a forgotten password with a code emailed to you. Leave empty if you'd rather not.</div></div>
   <div class="profrow"><label>Account</label>
     <div class="sub" id="pf-account">—</div>
     <button class="btn small" style="margin-top:8px" onclick="changePassword()">Change password</button></div>
