@@ -1,0 +1,639 @@
+<title>Corbital — Prototype v1</title>
+<style>
+/* ============ tokens ============ */
+:root{
+  --bg:#F4F4EF; --surface:#FDFDFB; --surface2:#ECEDE6; --line:#DCDED4;
+  --ink:#1B241F; --ink2:#55605A; --ink3:#8A948D;
+  --brand:#157F49; --brand-ink:#0E5C35; --on-brand:#FFFFFF;
+  --gym:#D2622A; --run:#4A5BD7; --swim:#0E93A0; --study:#9A4FBF; --other:#157F49;
+  --yes:#1E9A55; --no:#CE3B3B; --maybe:#D9A012; --depends:#8B5CD6;
+  --yes-soft:#DCF2E4; --no-soft:#F9E0E0; --maybe-soft:#F7EDCC; --depends-soft:#EBE1FA;
+  --shadow:0 1px 2px rgba(20,30,25,.06),0 4px 14px rgba(20,30,25,.07);
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#131714; --surface:#1C211D; --surface2:#242A25; --line:#333B34;
+    --ink:#E8ECE8; --ink2:#A7B0A9; --ink3:#727C74;
+    --brand:#2F9E63; --brand-ink:#57CA8C; --on-brand:#0B130E;
+    --gym:#D97742; --run:#6B7BE8; --swim:#1FA3B2; --study:#B06BD4; --other:#2F9E63;
+    --yes:#2FAE68; --no:#D95555; --maybe:#CFA02F; --depends:#9C74E0;
+    --yes-soft:#1D3427; --no-soft:#3A2222; --maybe-soft:#37301A; --depends-soft:#2C2440;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="light"]{
+  --bg:#F4F4EF; --surface:#FDFDFB; --surface2:#ECEDE6; --line:#DCDED4;
+  --ink:#1B241F; --ink2:#55605A; --ink3:#8A948D;
+  --brand:#157F49; --brand-ink:#0E5C35; --on-brand:#FFFFFF;
+  --gym:#D2622A; --run:#4A5BD7; --swim:#0E93A0; --study:#9A4FBF; --other:#157F49;
+  --yes:#1E9A55; --no:#CE3B3B; --maybe:#D9A012; --depends:#8B5CD6;
+  --yes-soft:#DCF2E4; --no-soft:#F9E0E0; --maybe-soft:#F7EDCC; --depends-soft:#EBE1FA;
+  --shadow:0 1px 2px rgba(20,30,25,.06),0 4px 14px rgba(20,30,25,.07);
+}
+:root[data-theme="dark"]{
+  --bg:#131714; --surface:#1C211D; --surface2:#242A25; --line:#333B34;
+  --ink:#E8ECE8; --ink2:#A7B0A9; --ink3:#727C74;
+  --brand:#2F9E63; --brand-ink:#57CA8C; --on-brand:#0B130E;
+  --gym:#D97742; --run:#6B7BE8; --swim:#1FA3B2; --study:#B06BD4; --other:#2F9E63;
+  --yes:#2FAE68; --no:#D95555; --maybe:#CFA02F; --depends:#9C74E0;
+  --yes-soft:#1D3427; --no-soft:#3A2222; --maybe-soft:#37301A; --depends-soft:#2C2440;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font:15px/1.5 "Avenir Next",Avenir,Seravek,"Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;padding:0}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+
+/* ============ header + tabs ============ */
+header{position:sticky;top:0;z-index:30;background:var(--bg);padding:14px 16px 0;border-bottom:1px solid var(--line)}
+.brandrow{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.logo{font-weight:800;font-size:21px;letter-spacing:-.02em}
+.logo .dot{color:var(--brand)}
+.brandrow .spacer{flex:1}
+.iconbtn{width:36px;height:36px;border-radius:50%;background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;font-size:16px}
+.tabs{display:flex;gap:4px;overflow-x:auto}
+.tab{flex:1;min-width:72px;text-align:center;padding:9px 6px 11px;font-weight:700;font-size:13px;letter-spacing:.06em;color:var(--ink3);border-bottom:3px solid transparent;border-radius:8px 8px 0 0}
+.tab:hover{color:var(--ink2);background:var(--surface2)}
+.tab.on{color:var(--ink);border-bottom-color:var(--brand)}
+main{flex:1;padding:16px 16px 60px}
+section.panel{display:none}
+section.panel.on{display:block;animation:fadein .18s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){section.panel.on{animation:none}}
+
+/* ============ shared bits ============ */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:14px;margin-bottom:12px}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:18px 0 8px}
+.eyebrow:first-child{margin-top:0}
+h2{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--ink2);font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;font-weight:700;font-size:13px;background:var(--surface2);border:1px solid var(--line)}
+.btn:hover{border-color:var(--ink3)}
+.btn.primary{background:var(--brand);color:var(--on-brand);border-color:var(--brand)}
+.btn.small{padding:5px 11px;font-size:12px}
+.chiprow{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:var(--surface);border:1.5px solid var(--line);font-weight:600;font-size:13px}
+.chip .swatch{width:9px;height:9px;border-radius:50%;background:var(--c,var(--other))}
+.chip:hover{border-color:var(--c,var(--brand))}
+.chip.add{border-style:dashed;color:var(--ink2)}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;background:var(--surface2);color:var(--ink2)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:99;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%)}
+
+/* ============ SCHD ============ */
+.weekstrip{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:14px}
+.day{padding:8px 2px;text-align:center;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
+.day .dow{font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--ink3)}
+.day .num{font-size:16px;font-weight:700}
+.day .marks{height:5px;display:flex;gap:2px;justify-content:center;margin-top:3px}
+.day .marks i{width:5px;height:5px;border-radius:50%}
+.day.on{background:var(--brand);border-color:var(--brand)}
+.day.on .dow,.day.on .num{color:var(--on-brand)}
+.slot{display:flex;gap:10px;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);margin-bottom:8px;align-items:flex-start}
+.slot .stripe{width:4px;align-self:stretch;border-radius:4px;background:var(--c,var(--other));flex:none}
+.slot .t{font-weight:700;font-size:13px}
+.slot .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
+.slot .del{margin-left:auto;color:var(--ink3);font-size:15px;flex:none}
+.slot .del:hover{color:var(--no)}
+.composer{border:1.5px solid var(--brand);}
+.composer .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+.composer select,.composer input{flex:1;min-width:0}
+.seg{display:inline-flex;background:var(--surface2);border-radius:999px;padding:3px;gap:2px}
+.seg button{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;color:var(--ink2)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.newact{display:none;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+.newact.show{display:flex}
+.colorpick{display:flex;gap:6px}
+.colorpick button{width:24px;height:24px;border-radius:50%;border:2px solid transparent}
+.colorpick button.on{border-color:var(--ink)}
+
+/* ============ FRDS ============ */
+.post .head{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--surface2);display:grid;place-items:center;font-weight:800;font-size:14px;color:var(--brand-ink);border:1px solid var(--line);flex:none}
+.post .who{font-weight:700;font-size:14px}
+.post .when{font-size:12px;color:var(--ink3)}
+.rangebar{display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:10px;padding:8px 12px;margin:8px 0;font-weight:700;font-size:13px}
+.rangebar .track{flex:1;height:6px;border-radius:6px;background:var(--line);position:relative;overflow:hidden}
+.rangebar .track i{position:absolute;top:0;bottom:0;border-radius:6px;background:var(--c,var(--brand))}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.replybox{display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.replybox.show{display:block}
+.replybox .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.count{font-variant-numeric:tabular-nums}
+.reaction{border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;background:var(--surface)}
+.reaction.fired{background:var(--yes-soft);border-color:var(--yes);color:var(--ink)}
+.notechip{display:inline-block;background:var(--depends-soft);border-radius:8px;padding:4px 10px;font-size:12px;font-weight:600;margin-top:8px}
+
+/* ============ GLPR ============ */
+.goalhead{display:flex;align-items:baseline;gap:8px}
+.goalhead .type{margin-left:auto}
+.chart{margin-top:10px}
+.bars{display:flex;align-items:flex-end;gap:10px;height:90px;padding-top:6px}
+.bars .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.bars .bar{width:70%;max-width:34px;border-radius:4px 4px 0 0;background:var(--c,var(--brand));min-height:3px}
+.bars .v{font-size:11px;font-weight:700}
+.bars .l{font-size:10px;color:var(--ink3)}
+.ladder{display:flex;gap:6px;margin-top:10px}
+.ladder .step{flex:1;text-align:center;padding:10px 4px 8px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface)}
+.ladder .step.done{background:var(--yes-soft);border-color:var(--yes)}
+.ladder .step.next{border-color:var(--brand);border-style:dashed}
+.ladder .step .d{font-size:15px;font-weight:800}
+.ladder .step .s{font-size:10px;color:var(--ink2)}
+svg text{fill:var(--ink2);font-size:10px;font-family:ui-monospace,Menlo,monospace}
+svg .axis{stroke:var(--line)}
+svg .grid{stroke:var(--line);stroke-dasharray:2 4}
+.legendrow{display:flex;gap:14px;font-size:12px;color:var(--ink2);margin-top:6px;flex-wrap:wrap}
+.legendrow i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+/* ============ PLANNIT ============ */
+.grid-wrap{overflow-x:auto;margin-top:10px;border:1px solid var(--line);border-radius:12px}
+table.avail{border-collapse:collapse;width:100%;min-width:440px}
+table.avail th{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--ink3);padding:6px 4px;background:var(--surface2);position:sticky;top:0}
+table.avail td{border:1px solid var(--line);padding:0}
+table.avail td button{width:100%;height:30px;display:grid;place-items:center;font-size:11px;font-weight:800}
+td .s0{background:var(--surface)}
+td .s1{background:var(--yes-soft);color:var(--yes)}
+td .s2{background:var(--no-soft);color:var(--no)}
+td .s3{background:var(--maybe-soft);color:var(--maybe)}
+td .s4{background:var(--depends-soft);color:var(--depends)}
+th.rowlab{text-align:right;padding-right:8px;background:var(--surface);position:static}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;font-weight:600;color:var(--ink2)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:14px;height:14px;border-radius:4px;display:grid;place-items:center;font-size:9px;font-weight:800;font-style:normal}
+
+/* ============ SEARCH ============ */
+.subtabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.subtabs button{padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;background:var(--surface);border:1px solid var(--line);color:var(--ink2)}
+.subtabs button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.result{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);margin-bottom:8px}
+.result .stripe{width:4px;align-self:stretch;border-radius:4px;background:var(--c,var(--other))}
+.result .t{font-weight:700;font-size:13px}
+.result .live{margin-left:auto}
+.livepill{background:var(--yes-soft);color:var(--yes);font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;letter-spacing:.06em}
+
+/* ============ sheets (privacy / notes) ============ */
+.scrim{position:fixed;inset:0;background:rgba(10,14,11,.45);z-index:40;display:none}
+.scrim.show{display:block}
+.sheet{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:560px;max-height:82vh;overflow-y:auto;background:var(--surface);border-radius:20px 20px 0 0;z-index:50;padding:18px 18px 30px;display:none;box-shadow:0 -8px 40px rgba(0,0,0,.25)}
+.sheet.show{display:block}
+.sheet h3{margin:0 0 4px;font-size:17px}
+.sheet .handle{width:40px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
+.privrow{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+.privrow .g{flex:1}
+.privrow .t{font-weight:700;font-size:14px}
+.privrow .d{font-size:12px;color:var(--ink2)}
+.audsel{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.audsel button{padding:5px 11px;border-radius:999px;font-size:12px;font-weight:700;border:1.5px solid var(--line);background:var(--surface)}
+.audsel button.on{border-color:var(--brand);background:var(--yes-soft);color:var(--ink)}
+.notes li{margin-bottom:8px;font-size:13.5px}
+.notes .q{font-weight:700}
+.tag-todo{background:var(--maybe-soft);color:var(--ink);font-size:10px;font-weight:800;padding:1px 7px;border-radius:999px;letter-spacing:.05em}
+</style>
+
+<div class="app">
+<header>
+  <div class="brandrow">
+    <div class="logo">Corbital<span class="dot">.</span></div>
+    <span class="pill">prototype v1</span>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
+    <button class="iconbtn" title="Build notes — what's missing" onclick="openSheet('notes')">📝</button>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab on" data-t="schd">SCHD</button>
+    <button class="tab" data-t="frds">FRDS</button>
+    <button class="tab" data-t="glpr">GLPR</button>
+    <button class="tab" data-t="plannit">PLANNIT</button>
+    <button class="tab" data-t="search">SEARCH</button>
+  </nav>
+</header>
+
+<main>
+<!-- ================= SCHD ================= -->
+<section class="panel on" id="p-schd">
+  <div class="weekstrip" id="weekstrip"></div>
+
+  <div class="eyebrow">Quick add — tap an activity</div>
+  <div class="chiprow" id="actchips"></div>
+  <div class="newact" id="newact">
+    <input id="na-name" placeholder="Name it — e.g. Volleyball practice" style="flex:1;min-width:150px">
+    <div class="colorpick" id="na-colors"></div>
+    <button class="btn primary small" onclick="saveNewActivity()">Save</button>
+  </div>
+
+  <div class="card composer" id="composer" style="display:none;margin-top:14px">
+    <h2 id="composer-title">Plan: Gym</h2>
+    <div class="row">
+      <div class="seg" id="posttype">
+        <button class="on" data-v="plan">Plan</button>
+        <button data-v="ask">Ask / Advice</button>
+        <button data-v="invite">Open invite</button>
+      </div>
+    </div>
+    <div class="row" id="timerow">
+      <label class="sub">Between</label>
+      <select id="t-from"></select>
+      <label class="sub">and</label>
+      <select id="t-to"></select>
+    </div>
+    <div class="row">
+      <input id="c-note" placeholder="Note — “chest day, anyone in?” / “notes for BIO120?”" style="width:100%">
+    </div>
+    <div class="row">
+      <label class="sub">Who can see:</label>
+      <div class="audsel" id="c-aud">
+        <button class="on">Everyone</button><button>Close friends</button><button>Gym crew</button><button>Custom…</button><button>Only me</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn primary" onclick="postPlan()">Post it</button>
+      <button class="btn" onclick="hideComposer()">Cancel</button>
+    </div>
+  </div>
+
+  <div class="eyebrow" id="daylabel">Today — Fri Jul 31</div>
+  <div id="slots"></div>
+
+  <div class="eyebrow">Asked &amp; recommended</div>
+  <div class="card">
+    <div class="sub">💬 You asked <b>Close friends</b>: “anyone have notes for BIO120?” — <span class="count" id="mynotes-replies">2 replies</span></div>
+  </div>
+  <div class="card">
+    <div class="sub">💡 Recommendation for you: <b>Sam</b> and <b>Maya</b> both plan runs Sat morning — post yours in a range to line up.</div>
+  </div>
+</section>
+
+<!-- ================= FRDS ================= -->
+<section class="panel" id="p-frds">
+  <div class="eyebrow">Friends feed</div>
+  <div id="feed"></div>
+</section>
+
+<!-- ================= GLPR ================= -->
+<section class="panel" id="p-glpr">
+  <div class="eyebrow">Your goals &amp; progress</div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">
+    <button class="btn primary" onclick="toast('New-goal wizard: pick a tracker type below — every activity maps to one of the three')">＋ New goal</button>
+  </div>
+
+  <div class="card">
+    <div class="goalhead"><h2>Consistency</h2><span class="pill type">Type 1 · How often</span></div>
+    <div class="sub">Sessions per week — works for gym, runs, study, “try something new”, anything countable.</div>
+    <div class="chart"><div class="bars" id="freqchart"></div></div>
+    <div class="legendrow" id="freqlegend"></div>
+    <div class="actions"><button class="btn small" onclick="logSession()">＋ Log a session this week</button></div>
+  </div>
+
+  <div class="card">
+    <div class="goalhead"><h2>Bench 135 lb — reps</h2><span class="pill type">Type 2 · Performance</span></div>
+    <div class="sub">Same test, measured over time. Works for reps at a weight, swim/run times, grades…</div>
+    <div class="chart" id="benchchart"></div>
+  </div>
+
+  <div class="card">
+    <div class="goalhead"><h2>400 m swim — time</h2><span class="pill type">Type 2 · Performance</span></div>
+    <div class="sub">Lower is better — the chart flips so up still means improving.</div>
+    <div class="chart" id="swimchart"></div>
+  </div>
+
+  <div class="card">
+    <div class="goalhead"><h2>Swim 800 m nonstop</h2><span class="pill type">Type 3 · Progression</span></div>
+    <div class="sub">Milestone ladder — building up to a target, step by step. Works for distance, weight PRs, course units, anything with stages.</div>
+    <div class="ladder">
+      <div class="step done"><div class="d">400</div><div class="s">Jun 12</div></div>
+      <div class="step done"><div class="d">600</div><div class="s">Jul 02</div></div>
+      <div class="step done"><div class="d">700</div><div class="s">Jul 21</div></div>
+      <div class="step next"><div class="d">800</div><div class="s">goal</div></div>
+    </div>
+    <div class="actions">
+      <button class="btn small" onclick="toast('Milestone logged — friends with access can congratulate you in FRDS 🎉')">✔ Hit next milestone</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="sub">Every goal picks one of the three tracker shapes above and personalizes the units — so new activity types (volleyball serves, chess rating, café count…) never need new code, just a name + unit + direction (higher/lower is better).</div>
+  </div>
+</section>
+
+<!-- ================= PLANNIT ================= -->
+<section class="panel" id="p-plannit">
+  <div class="eyebrow">Create an invite</div>
+  <div class="card">
+    <div class="composer-lite">
+      <input id="pl-name" placeholder="Invite name — “Canoe trip planning”" style="width:100%;margin-bottom:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="pl-format">
+          <option value="hourly">Hourly · one week</option>
+          <option value="w1">Calendar · 1 week</option>
+          <option value="w2" selected>Calendar · 2 weeks</option>
+          <option value="w3">Calendar · 3 weeks</option>
+          <option value="w4">Calendar · 4 weeks</option>
+        </select>
+        <select id="pl-group">
+          <option>Send to: Gym crew (4)</option><option>Close friends (6)</option><option>Study group (3)</option><option>Pick people…</option>
+        </select>
+        <button class="btn primary" onclick="buildGrid()">Build grid</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 id="pl-title">Canoe trip planning — 2 weeks</h2>
+    <div class="sub">Tap a cell to cycle your answer. Everyone (including you, the sender) fills the same grid.</div>
+    <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
+    <div class="legend">
+      <span><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes for sure</span>
+      <span><i style="background:var(--no-soft);color:var(--no)">✕</i> Definitely not</span>
+      <span><i style="background:var(--maybe-soft);color:var(--maybe)">?</i> Maybe</span>
+      <span><i style="background:var(--depends-soft);color:var(--depends)">◷</i> Depends on time</span>
+    </div>
+    <div class="actions">
+      <button class="btn primary" onclick="toast('Invite sent — everyone can now fill their own copy of this grid ✉️')">Send invite</button>
+      <button class="btn small" onclick="toast('Overlap view (auto-finding the best common slots) is scoped for a later session 🔭')">View overlap <span class="tag-todo">LATER</span></button>
+    </div>
+  </div>
+
+  <div class="eyebrow">Received — “Sat gym sesh?” from Maya</div>
+  <div class="card">
+    <div class="sub" style="margin-bottom:8px">3 of 5 filled · Maya, Dev, Sam done — you and Lena left. Cells show how many said <b>yes</b> so far.</div>
+    <div class="grid-wrap"><table class="avail" id="recvgrid"></table></div>
+    <div class="sub" style="margin-top:8px">Best overlap so far: <b>Sat 10–12</b> (3 yes) — full overlap engine <span class="tag-todo">LATER</span></div>
+  </div>
+</section>
+
+<!-- ================= SEARCH ================= -->
+<section class="panel" id="p-search">
+  <div class="subtabs" id="searchtabs">
+    <button class="on" data-s="person">Person</button>
+    <button data-s="group">Group</button>
+    <button data-s="activity">Activity</button>
+    <button data-s="location">Location</button>
+  </div>
+  <input id="searchbox" placeholder="Search a friend…" style="width:100%;margin-bottom:12px">
+  <div id="searchresults"></div>
+</section>
+</main>
+</div>
+
+<!-- ============ privacy sheet ============ -->
+<div class="scrim" id="scrim" onclick="closeSheets()"></div>
+<div class="sheet" id="sheet-privacy" role="dialog" aria-label="Privacy controls">
+  <div class="handle"></div>
+  <h3>🛡️ Privacy — one tap away, everywhere</h3>
+  <div class="sub" style="margin-bottom:6px">Defaults apply to new posts; every post also has its own “Who can see” override right in the composer.</div>
+  <div class="privrow"><div class="g"><div class="t">Default audience</div><div class="d">Applied to new plans &amp; posts unless you override</div>
+    <div class="audsel" id="def-aud"><button>Everyone</button><button class="on">Close friends</button><button>Custom…</button><button>Only me</button></div></div>
+  </div>
+  <div class="privrow"><div class="g"><div class="t">Circles</div><div class="d">Reusable audience groups — pick once, use on any post</div>
+    <div class="audsel"><button class="on">Close friends (6)</button><button class="on">Gym crew (4)</button><button class="on">Study group (3)</button><button>＋ New circle</button></div></div>
+  </div>
+  <div class="privrow"><div class="g"><div class="t">Hidden from</div><div class="d">These people never see your plans, feed posts, or location activity</div>
+    <div class="audsel"><button>＋ Hide someone</button></div></div>
+  </div>
+  <div class="privrow"><div class="g"><div class="t">Location visibility</div><div class="d">Who can find you via SEARCH → Location</div>
+    <div class="audsel"><button>Everyone</button><button class="on">Circles only</button><button>Nobody</button></div></div>
+  </div>
+</div>
+
+<!-- ============ notes sheet ============ -->
+<div class="sheet" id="sheet-notes" role="dialog" aria-label="Build notes">
+  <div class="handle"></div>
+  <h3>📝 What's missing / needs adjustment</h3>
+  <ul class="notes">
+    <li><span class="q">Overlap engine (PLANNIT):</span> auto-finding best common slots from everyone's grids — you flagged this for a later session. Grid + colors are in; the math isn't.</li>
+    <li><span class="q">Location search:</span> currently canned places (YMCA, Fairview, Don Mills, Bayview). Needs: how locations get added to a network, and region vs. exact-place search rules. You marked this TBD.</li>
+    <li><span class="q">Time-range replies:</span> the reply picker enforces staying inside the poster's range, but what happens when two friends propose conflicting sub-ranges (6–7 vs 6:30–7:30) isn't designed yet — merge? vote? poster picks?</li>
+    <li><span class="q">Custom activity trackers:</span> the 3 tracker types cover count / measure / ladder, but the "create goal" wizard (pick unit, direction, milestones) is a stub — needs a real flow.</li>
+    <li><span class="q">Notifications:</span> nothing yet for "someone joined your plan", "goal congratulated", "invite filled". Probably a 6th surface or a bell in the header.</li>
+    <li><span class="q">Groups vs circles:</span> right now privacy circles and PLANNIT send-groups and SEARCH groups are three separate ideas — they should probably be one "group" object used everywhere.</li>
+    <li><span class="q">Live status:</span> the LIVE pill in location search implies real-time check-ins — needs a decision: automatic (scary) vs manual "I'm here" (safer).</li>
+    <li><span class="q">Editing/deleting posts</span> after friends have replied with sub-ranges — what happens to their replies?</li>
+    <li><span class="q">Names:</span> SCHD / FRDS / GLPR / PLANNIT are placeholders per your note — GLPR especially reads unclear (goal-er? goal-progress?).</li>
+    <li><span class="q">Not built yet (by design):</span> real accounts, friend requests, persistence — everything here resets on refresh. It's a look-and-feel prototype.</li>
+  </ul>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2600)}
+function openSheet(n){$('#scrim').classList.add('show');$('#sheet-'+n).classList.add('show')}
+function closeSheets(){$('#scrim').classList.remove('show');$$('.sheet').forEach(s=>s.classList.remove('show'))}
+
+/* ---------- tabs ---------- */
+$('#tabs').addEventListener('click',e=>{const b=e.target.closest('.tab');if(!b)return;
+  $$('.tab').forEach(t=>t.classList.toggle('on',t===b));
+  $$('.panel').forEach(p=>p.classList.toggle('on',p.id==='p-'+b.dataset.t));});
+
+/* ---------- audience selectors (generic) ---------- */
+document.addEventListener('click',e=>{const b=e.target.closest('.audsel button');if(!b)return;
+  if(b.textContent.includes('Custom')||b.textContent.includes('Pick')){toast('Custom picker: choose exact people or circles per post (full flow TBD)');}
+  if(b.parentElement.id==='c-aud'||b.parentElement.id==='def-aud'||b.parentElement.querySelector('.on')){
+    if(!b.textContent.startsWith('＋')&&b.parentElement.id!=='') { }
+  }
+  if(['c-aud','def-aud'].includes(b.parentElement.id)){b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));}
+  else if(!b.textContent.startsWith('＋')) b.classList.toggle('on');
+});
+
+/* ---------- SCHD: week strip ---------- */
+const DOW=['MON','TUE','WED','THU','FRI','SAT','SUN'];
+const weekDates=[27,28,29,30,31,1,2]; let selDay=4;
+const dayLabels=['Mon Jul 27','Tue Jul 28','Wed Jul 29','Thu Jul 30','Today — Fri Jul 31','Sat Aug 1','Sun Aug 2'];
+const daySlots={4:[
+  {act:'Gym',c:'var(--gym)',t:'6:00–10:00 PM',note:'chest & tris — posted as a range',posted:'Everyone',range:true},
+  {act:'Study',c:'var(--study)',t:'2:00–4:00 PM',note:'BIO120 review',posted:'Only me'},
+],5:[{act:'Run',c:'var(--run)',t:'9:00–11:00 AM',note:'easy 5k, open invite',posted:'Close friends',range:true}]};
+function drawWeek(){const w=$('#weekstrip');w.innerHTML='';DOW.forEach((d,i)=>{
+  const el=document.createElement('button');el.className='day'+(i===selDay?' on':'');
+  const marks=(daySlots[i]||[]).slice(0,3).map(s=>`<i style="background:${i===selDay?'var(--on-brand)':s.c}"></i>`).join('');
+  el.innerHTML=`<div class="dow">${d}</div><div class="num">${weekDates[i]}</div><div class="marks">${marks}</div>`;
+  el.onclick=()=>{selDay=i;drawWeek();drawSlots()};w.appendChild(el);});}
+function drawSlots(){$('#daylabel').textContent=dayLabels[selDay];const box=$('#slots');box.innerHTML='';
+  const list=daySlots[selDay]||[];
+  if(!list.length){box.innerHTML='<div class="card sub">Nothing planned — tap an activity chip above to add.</div>';return}
+  list.forEach((s,ix)=>{const el=document.createElement('div');el.className='slot';el.style.setProperty('--c',s.c);
+    el.innerHTML=`<div class="stripe"></div><div><div class="t">${s.act} · <span class="mono">${s.t}</span></div>
+    <div class="sub">${s.note}</div><div class="meta">${s.range?'<span class="pill">⇄ range post</span>':''}<span class="pill">👁 ${s.posted}</span></div></div>
+    <button class="del" title="Remove" aria-label="Remove">✕</button>`;
+    el.querySelector('.del').onclick=()=>{list.splice(ix,1);drawWeek();drawSlots();toast('Removed')};box.appendChild(el);});}
+
+/* ---------- SCHD: activity chips ---------- */
+let acts=[{n:'Gym',c:'var(--gym)'},{n:'Run',c:'var(--run)'},{n:'Swim',c:'var(--swim)'},{n:'Study',c:'var(--study)'}];
+const pickColors=['var(--gym)','var(--run)','var(--swim)','var(--study)','var(--other)'];let naColor=pickColors[4];
+function drawChips(){const r=$('#actchips');r.innerHTML='';
+  acts.forEach(a=>{const b=document.createElement('button');b.className='chip';b.style.setProperty('--c',a.c);
+    b.innerHTML=`<span class="swatch"></span>${a.n}`;b.onclick=()=>openComposer(a);r.appendChild(b)});
+  const plus=document.createElement('button');plus.className='chip add';plus.innerHTML='＋ Make your own';
+  plus.onclick=()=>{$('#newact').classList.toggle('show');$('#na-name').focus()};r.appendChild(plus);}
+const cp=$('#na-colors');pickColors.forEach((c,i)=>{const b=document.createElement('button');b.style.background=c;
+  if(i===4)b.classList.add('on');b.onclick=()=>{naColor=c;cp.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b))};cp.appendChild(b)});
+function saveNewActivity(){const n=$('#na-name').value.trim();if(!n){toast('Give it a name first');return}
+  acts.push({n,c:naColor});$('#na-name').value='';$('#newact').classList.remove('show');drawChips();
+  toast(`“${n}” saved — it's now a permanent one-tap chip ✓`)}
+
+/* ---------- SCHD: composer ---------- */
+let curAct=null;
+const times=[];for(let h=6;h<=23;h++){const ampm=h<12?'AM':'PM';const hh=((h+11)%12)+1;times.push({v:h,l:`${hh}:00 ${ampm}`})}
+['t-from','t-to'].forEach((id,ix)=>{const s=document.getElementById(id);times.forEach(t=>{const o=document.createElement('option');o.value=t.v;o.textContent=t.l;s.appendChild(o)});s.value=ix?22:18});
+function openComposer(a){curAct=a;$('#composer').style.display='block';$('#composer-title').textContent='Plan: '+a.n;$('#composer').scrollIntoView({behavior:'smooth',block:'center'})}
+function hideComposer(){$('#composer').style.display='none'}
+$('#posttype').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  $$('#posttype button').forEach(x=>x.classList.toggle('on',x===b));
+  $('#timerow').style.display=b.dataset.v==='ask'?'none':'flex';});
+function fmtT(v){v=+v;const ampm=v<12?'AM':'PM';return `${((v+11)%12)+1}:00 ${ampm}`}
+function postPlan(){if(!curAct)return;const f=$('#t-from').value,t=$('#t-to').value;
+  if(+t<=+f){toast('End time has to be after start');return}
+  const type=$('#posttype .on').dataset.v;const aud=$('#c-aud .on').textContent;
+  const note=$('#c-note').value.trim()||(type==='ask'?'(question)':'open to friends in this window');
+  (daySlots[selDay]=daySlots[selDay]||[]).push({act:curAct.n,c:curAct.c,t:`${fmtT(f)}–${fmtT(t)}`,note,posted:aud,range:type!=='ask'});
+  hideComposer();$('#c-note').value='';drawWeek();drawSlots();
+  toast(aud==='Only me'?'Added to your schedule (private)':'Posted — friends can now join or suggest a time inside your range');}
+
+/* ---------- FRDS feed ---------- */
+const feed=[
+ {who:'Maya',ini:'M',when:'20 min ago · Gym crew',kind:'range',act:'Gym',c:'var(--gym)',txt:'Gym tonight — anyone in?',from:'6 PM',to:'10 PM',joins:1},
+ {who:'Dev',ini:'D',when:'1 h ago · Study group',kind:'ask',txt:'Anyone have notes for BIO120 lecture 8? Missed it 😭',replies:2},
+ {who:'Sam',ini:'S',when:'3 h ago · Everyone',kind:'goal',txt:'New goal: bench 185 lb by Sept 🎯',enc:4},
+ {who:'Lena',ini:'L',when:'Yesterday · Close friends',kind:'done',txt:'Goal complete — ran 5k in 23:58, new PR 🏁',congrats:9},
+ {who:'Maya',ini:'M',when:'Yesterday · Everyone',kind:'invite',txt:'New café on Bayview — anyone wanna try it Sat around 2?',ins:2},
+];
+function drawFeed(){const box=$('#feed');box.innerHTML='';feed.forEach((p,ix)=>{
+ const el=document.createElement('div');el.className='card post';
+ let body=`<div class="head"><div class="avatar">${p.ini}</div><div><div class="who">${p.who}</div><div class="when">${p.when}</div></div></div><div>${p.txt}</div>`;
+ if(p.kind==='range'){
+  body+=`<div class="rangebar" style="--c:${p.c}"><span class="mono">${p.from}</span><div class="track"><i style="left:0;right:0"></i></div><span class="mono">${p.to}</span></div>
+  <div class="actions">
+   <button class="btn small primary" onclick="joinPlan(${ix},this)">🙋 Request to join · <span class="count">${p.joins}</span></button>
+   <button class="btn small" onclick="this.closest('.card').querySelector('.replybox').classList.toggle('show')">⇄ Suggest a time</button>
+  </div>
+  <div class="replybox"><div class="sub" style="margin-bottom:6px">Propose a slot inside Maya's 6–10 window:</div>
+   <div class="row"><select class="rf"><option>6 PM</option><option>7 PM</option><option selected>8 PM</option><option>9 PM</option></select>
+   <span class="sub">to</span><select class="rt"><option>7 PM</option><option>8 PM</option><option selected>9 PM</option><option>10 PM</option></select>
+   <input placeholder="e.g. chest & triceps" style="flex:1;min-width:120px"></div>
+   <button class="btn small primary" onclick="suggestTime(this)">Send suggestion</button></div>`;
+ }
+ if(p.kind==='ask'){body+=`<div class="actions"><button class="btn small" onclick="this.closest('.card').querySelector('.replybox').classList.toggle('show')">💬 Answer · <span class="count">${p.replies}</span></button></div>
+  <div class="replybox"><div class="row"><input placeholder="I got you — sending after class" style="flex:1"><button class="btn small primary" onclick="sendReply(this)">Reply</button></div></div>`;}
+ if(p.kind==='goal'){body+=`<div class="actions">
+   <button class="reaction" onclick="fire(this)">👏 Encourage · <span class="count">${p.enc}</span></button>
+   <button class="btn small" onclick="toast('Joined! This goal now shows in your GLPR with a shared-progress tag 🤝')">🤝 Join this goal</button></div>`;}
+ if(p.kind==='done'){body+=`<div class="actions">
+   <button class="reaction" onclick="fire(this)">🎉 Congrats · <span class="count">${p.congrats}</span></button></div>`;}
+ if(p.kind==='invite'){body+=`<div class="actions">
+   <button class="btn small primary" onclick="fireIn(this)">☕ I'm in · <span class="count">${p.ins}</span></button>
+   <button class="btn small" onclick="toast('Suggested a different time — Maya will see it on her post')">⇄ Suggest time</button></div>`;}
+ el.innerHTML=body;box.appendChild(el);});}
+function joinPlan(ix,btn){feed[ix].joins++;btn.querySelector('.count').textContent=feed[ix].joins;toast('Request sent — Maya gets a one-tap accept 🙌')}
+function suggestTime(btn){const box=btn.closest('.replybox');const f=box.querySelector('.rf').value,t=box.querySelector('.rt').value;
+ const note=box.querySelector('input').value.trim();box.classList.remove('show');
+ const chip=document.createElement('div');chip.className='notechip';chip.textContent=`You proposed ${f}–${t}${note?' · '+note:''} ✓`;
+ btn.closest('.card').appendChild(chip);toast('Sent — if Maya accepts, it locks into both your SCHD calendars')}
+function sendReply(btn){btn.closest('.replybox').classList.remove('show');toast('Reply posted 💬')}
+function fire(btn){if(btn.classList.contains('fired'))return;btn.classList.add('fired');const c=btn.querySelector('.count');c.textContent=+c.textContent+1;toast('Sent ✓ — one tap, LinkedIn style')}
+function fireIn(btn){const c=btn.querySelector('.count');c.textContent=+c.textContent+1;toast("You're in — it lands on your SCHD for Sat ☕")}
+
+/* ---------- GLPR charts ---------- */
+const freq={weeks:['W1','W2','W3','W4'],series:[{n:'Gym',c:'var(--gym)',v:[2,3,3,4]},{n:'Run',c:'var(--run)',v:[1,2,2,3]},{n:'Study',c:'var(--study)',v:[3,2,4,4]}]};
+function drawFreq(){const box=$('#freqchart');box.innerHTML='';const max=5;
+ freq.weeks.forEach((w,wi)=>{const col=document.createElement('div');col.className='col';
+  const bars=document.createElement('div');bars.style.cssText='display:flex;gap:3px;align-items:flex-end;height:64px';
+  freq.series.forEach(s=>{const b=document.createElement('div');b.className='bar';b.style.setProperty('--c',s.c);
+   b.style.height=(s.v[wi]/max*100)+'%';b.style.width='12px';b.title=`${s.n}: ${s.v[wi]} sessions`;bars.appendChild(b)});
+  col.appendChild(bars);col.insertAdjacentHTML('beforeend',`<div class="l">${w}</div>`);box.appendChild(col);});
+ $('#freqlegend').innerHTML=freq.series.map(s=>`<span><i style="background:${s.c}"></i>${s.n}</span>`).join('');}
+function logSession(){freq.series[0].v[3]=Math.min(7,freq.series[0].v[3]+1);drawFreq();toast('Gym session logged for this week 💪')}
+function lineChart(el,pts,unit,color,invert){
+ const W=480,H=150,P={l:52,r:14,t:14,b:24};
+ const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+ const x0=Math.min(...xs),x1=Math.max(...xs);let y0=Math.min(...ys),y1=Math.max(...ys);
+ const pad=(y1-y0)*.25||1;y0-=pad;y1+=pad;
+ const X=x=>P.l+(x-x0)/(x1-x0)*(W-P.l-P.r);
+ const Y=y=>invert?P.t+(y-y0)/(y1-y0)*(H-P.t-P.b):H-P.b-(y-y0)/(y1-y0)*(H-P.t-P.b);
+ let d=pts.map((p,i)=>(i?'L':'M')+X(p.x).toFixed(1)+' '+Y(p.y).toFixed(1)).join(' ');
+ const last=pts[pts.length-1];
+ const gridY=[y0+pad,y1-pad];
+ let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="progress chart">`;
+ gridY.forEach(g=>{svg+=`<line class="grid" x1="${P.l}" x2="${W-P.r}" y1="${Y(g).toFixed(1)}" y2="${Y(g).toFixed(1)}"/>
+  <text x="4" y="${(Y(g)+3).toFixed(1)}">${g}${unit}</text>`});
+ svg+=`<line class="axis" x1="${P.l}" x2="${W-P.r}" y1="${H-P.b}" y2="${H-P.b}"/>`;
+ svg+=`<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+ pts.forEach(p=>{svg+=`<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="4.5" fill="${color}" stroke="var(--surface)" stroke-width="2"><title>Day ${p.x}: ${p.y}${unit}</title></circle>
+  <text x="${X(p.x).toFixed(1)}" y="${H-8}" text-anchor="middle">d${p.x}</text>`});
+ svg+=`<text x="${(X(last.x)-8).toFixed(1)}" y="${(Y(last.y)-9).toFixed(1)}" text-anchor="end" style="font-weight:700;fill:var(--ink)">${last.y}${unit}</text></svg>`;
+ el.innerHTML=svg;}
+drawFreq();
+lineChart($('#benchchart'),[{x:1,y:10},{x:5,y:13},{x:8,y:11},{x:12,y:16}],' reps','var(--gym)',false);
+lineChart($('#swimchart'),[{x:1,y:9},{x:6,y:8.5},{x:14,y:8}],' min','var(--swim)',true);
+
+/* ---------- PLANNIT grids ---------- */
+const STATES=['s0','s1','s2','s3','s4'],SYMS=['','✓','✕','?','◷'];
+function cellBtn(start=0){const b=document.createElement('button');b.className=STATES[start];b.textContent=SYMS[start];
+ b.onclick=()=>{let i=(STATES.indexOf(b.className)+1)%5;b.className=STATES[i];b.textContent=SYMS[i]};return b}
+function buildGrid(quiet){const fmt=$('#pl-format').value;const name=$('#pl-name').value.trim()||'Untitled invite';
+ $('#pl-title').textContent=`${name} — ${$('#pl-format').selectedOptions[0].textContent.toLowerCase()}`;
+ const t=$('#availgrid');t.innerHTML='';
+ if(fmt==='hourly'){
+  let h='<tr><th></th>'+DOW.map(d=>`<th>${d}</th>`).join('')+'</tr>';t.innerHTML=h;
+  for(let hr=8;hr<=21;hr+=2){const tr=document.createElement('tr');
+   tr.innerHTML=`<th class="rowlab mono">${((hr+11)%12)+1}${hr<12?'a':'p'}–${((hr+13)%12)+1}${hr+2<12||hr+2>=24?'a':'p'}</th>`;
+   for(let d=0;d<7;d++){const td=document.createElement('td');td.appendChild(cellBtn());tr.appendChild(td)}t.appendChild(tr);}
+ }else{
+  const weeks=+fmt[1];let h='<tr><th></th>'+DOW.map(d=>`<th>${d}</th>`).join('')+'</tr>';t.innerHTML=h;
+  for(let w=0;w<weeks;w++){const tr=document.createElement('tr');tr.innerHTML=`<th class="rowlab">Wk ${w+1}</th>`;
+   for(let d=0;d<7;d++){const td=document.createElement('td');td.appendChild(cellBtn());tr.appendChild(td)}t.appendChild(tr);}}
+ if(quiet!==true)toast('Grid ready — fill yours, then hit Send')}
+buildGrid(true);
+(function(){const t=$('#recvgrid');const cols=['SAT 8–10','SAT 10–12','SAT 12–2','SAT 2–4','SAT 4–6'];
+ t.innerHTML='<tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>';
+ const yes=[1,3,2,1,0];const tr=document.createElement('tr');
+ yes.forEach((y,i)=>{const td=document.createElement('td');const b=document.createElement('button');
+  b.className=y>=3?'s1':y>=1?'s3':'s0';b.textContent=y?y+'✓':'';b.title=`${y} of 3 said yes so far`;
+  b.onclick=()=>toast(`${y} said yes here — tap cells in YOUR row via the invite (full multi-row view LATER)`);
+  td.appendChild(b);tr.appendChild(td)});t.appendChild(tr);})();
+
+/* ---------- SEARCH ---------- */
+const searchData={
+ person:{ph:'Search a friend…',items:[
+  {s:'var(--gym)',t:'Maya — today',d:'Gym 6–10 PM (range, 1 joined) · free before 5',live:false},
+  {s:'var(--run)',t:'Sam — today',d:'Run 7 AM done ✓ · Study 8–10 PM',live:false},
+  {s:'var(--study)',t:'Dev — today',d:'BIO120 lecture 2–4 · asking for notes',live:false}]},
+ group:{ph:'Search a group…',items:[
+  {s:'var(--gym)',t:'Gym crew (4)',d:'Maya posted 6–10 PM tonight · 2 of 4 free after 8',live:false},
+  {s:'var(--other)',t:'Close friends (6)',d:'Café invite Sat ~2 PM · 2 in so far',live:false},
+  {s:'var(--study)',t:'Study group (3)',d:'Nothing planned — start a PLANNIT?',live:false}]},
+ activity:{ph:'Try “run”, “gym”, “swim”, “study”…',items:[
+  {s:'var(--run)',t:'Run · Sat 9–11 AM',d:'You — easy 5k, open invite (Close friends)',live:false},
+  {s:'var(--run)',t:'Run · Sat 8 AM',d:'Sam — tempo 8k, Don Mills trail',live:false},
+  {s:'var(--run)',t:'Run · Sun 10 AM',d:'Lena — recovery jog, anyone welcome',live:false}]},
+ location:{ph:'Try “YMCA”, “Fairview”, “Don Mills”, “Bayview”…',items:[
+  {s:'var(--swim)',t:'YMCA — Maya · swim',d:'Laps now until 3 PM',live:true},
+  {s:'var(--gym)',t:'YMCA — Dev · lift',d:'Planned 6–8 PM',live:false},
+  {s:'var(--other)',t:'Bayview — café invite',d:'Sat ~2 PM · 2 going',live:false},
+  {s:'var(--run)',t:'Don Mills — Sam · run',d:'Sat 8 AM tempo',live:false}]}};
+let curSearch='person';
+$('#searchtabs').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+ curSearch=b.dataset.s;$$('#searchtabs button').forEach(x=>x.classList.toggle('on',x===b));
+ $('#searchbox').placeholder=searchData[curSearch].ph;drawSearch();});
+$('#searchbox').addEventListener('input',drawSearch);
+function drawSearch(){const q=$('#searchbox').value.toLowerCase();const box=$('#searchresults');box.innerHTML='';
+ const items=searchData[curSearch].items.filter(i=>!q||(i.t+i.d).toLowerCase().includes(q));
+ if(curSearch==='activity'&&items.length)box.insertAdjacentHTML('beforeend','<div class="sub" style="margin-bottom:8px">Chronological — soonest first</div>');
+ if(curSearch==='location')box.insertAdjacentHTML('beforeend','<div class="sub" style="margin-bottom:8px">Places in your network · region search (Fairview, Don Mills, Bayview…) <span class="tag-todo">TBD</span></div>');
+ if(!items.length){box.innerHTML='<div class="card sub">No matches in your network. (Location list is canned for the prototype.)</div>';return}
+ items.forEach(i=>{const el=document.createElement('div');el.className='result';el.style.setProperty('--c',i.s);
+  el.innerHTML=`<div class="stripe"></div><div><div class="t">${i.t}</div><div class="sub">${i.d}</div></div>${i.live?'<span class="livepill live">LIVE</span>':''}`;
+  box.appendChild(el)});}
+drawWeek();drawSlots();drawChips();drawFeed();drawSearch();
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheets()});
+</script>
