@@ -272,9 +272,30 @@ async function authSubmit(){
   }
 }
 
+function personalKey(base){ return base + '_' + me.username.toLowerCase(); }
+function saveDay(){ if (me) store(personalKey('cb_slots'), daySlots); }
+function saveStats(){ if (me) store(personalKey('cb_stats'), { totals, logbook, freqV: freq.series.map(x => x.v) }); }
+function loadPersonal(){
+  const savedSlots = load(personalKey('cb_slots'), null);
+  if (savedSlots) {
+    Object.keys(daySlots).forEach(k => delete daySlots[k]);
+    Object.assign(daySlots, savedSlots);
+  }
+  const st = load(personalKey('cb_stats'), null);
+  if (st) {
+    Object.keys(totals).forEach(k => delete totals[k]);
+    Object.assign(totals, st.totals);
+    logbook.length = 0;
+    logbook.push(...st.logbook);
+    if (st.freqV) freq.series.forEach((x, i) => { if (st.freqV[i]) x.v = st.freqV[i]; });
+  }
+}
+
 function enterApp(){
   me = currentUser();
   if (!me) { $('#authgate').classList.remove('hidden'); return; }
+  loadPersonal();
+  drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
   $('#authgate').classList.add('hidden');
   $('#profilebtn').textContent = me.av;
   $('#pf-name').value = me.displayName;
@@ -515,13 +536,14 @@ function drawSlots(){
       `<span class="chev">▾</span>` +
       `<button class="del" title="Remove" aria-label="Remove">✕</button>`;
     el.onclick = () => el.classList.toggle('open');
-    el.querySelector('.del').onclick = e => { e.stopPropagation(); list.splice(ix, 1); drawWeek(); drawSlots(); toast('Removed'); };
+    el.querySelector('.del').onclick = e => { e.stopPropagation(); list.splice(ix, 1); saveDay(); drawWeek(); drawSlots(); toast('Removed'); };
     el.querySelector('.doneb').onclick = e => {
       e.stopPropagation();
-      if (s.done) { s.done = false; drawSlots(); return; }
+      if (s.done) { s.done = false; saveDay(); drawSlots(); return; }
       s.done = true;
       const tags = (s.tags && s.tags.length) ? s.tags : inferTags(s.act, s.note);
       logActivity(s.act, tags, 'from your schedule');
+      saveDay();
       burst(e.clientX, e.clientY, 26);
       drawSlots();
     };
@@ -668,6 +690,7 @@ function postPlan(){
   bumpTotals(curAct.n, curAct.c);
   hideComposer();
   $('#c-note').value = '';
+  saveDay(); saveStats();
   drawWeek(); drawSlots(); drawChips(); drawTotals();
   toast(aud === 'Only me'
     ? 'Added to your schedule (private)'
@@ -1038,6 +1061,7 @@ function logActivity(actName, tags, sourceNote, specs){
     ? tags.map(t => specs[t] ? specText(t, specs[t]) : t)
     : [sourceNote || 'Session'];
   logbook.unshift({ act: actName, c: color, tags: tagLine, when:'Just now' });
+  saveStats();
   drawFreq(); drawTotals(); drawLogbook();
   toast(`Logged ${actName}${tags.length ? ' · ' + tags.join(', ') : ''} → ${hit.join(' + ')} ✓`);
 }
