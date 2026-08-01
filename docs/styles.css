@@ -346,3 +346,32 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 }
 :root[data-theme="dark"] .logo-mark{ filter:none; }
 :root[data-theme="light"] .logo-mark{ filter:invert(1); }
+
+/* ============ v16: friend-request badge + pull-to-refresh ============ */
+.tab{position:relative}
+.tabbadge{
+  position:absolute; top:3px; right:6px; min-width:16px; height:16px; padding:0 4px;
+  border-radius:999px; background:var(--no); color:#fff; font-size:10px; font-weight:800;
+  display:flex; align-items:center; justify-content:center; line-height:1;
+  box-shadow:0 0 0 2px var(--bg);
+}
+
+#ptr-indicator{
+  position:fixed; top:-56px; left:50%; z-index:80;
+  width:34px; height:34px; border-radius:50%;
+  background:var(--surface); box-shadow:var(--shadow);
+  display:flex; align-items:center; justify-content:center;
+  opacity:0; pointer-events:none;
+  transform:translateX(-50%) translateY(0px);
+  transition:opacity .15s ease;
+}
+#ptr-indicator.dragging{ transition:none; }
+.ptr-spinner{
+  width:16px; height:16px; border-radius:50%;
+  border:2px solid var(--line); border-top-color:var(--brand);
+}
+#ptr-indicator.spinning .ptr-spinner{ animation:ptrspin .7s linear infinite; }
+@keyframes ptrspin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce){
+  #ptr-indicator.spinning .ptr-spinner{ animation:none; }
+}

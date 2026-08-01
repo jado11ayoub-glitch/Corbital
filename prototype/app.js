@@ -263,15 +263,39 @@ async function enterApp(){
   drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
   const em = await sb.rpc('get_masked_email', { p_username: me.username });
   $('#pf-email').value = (!em.error && em.data.has_email) ? em.data.masked : '';
-  drawFriendsTab();
+  await drawFriendsTab();
+  startReqBadgePoll();
 }
 
 function logoutUser(){
   localStorage.removeItem('cb_me');
   me = null;
+  stopReqBadgePoll();
   closeSheets();
   $('#authgate').classList.remove('hidden');
   $('#g-pass').value = '';
+}
+
+/* ---------- friend-request badge on the FRIENDS tab ---------- */
+function paintReqBadge(n){
+  const b = $('#freq-badge');
+  if (n > 0) { b.textContent = n > 9 ? '9+' : n; b.hidden = false; }
+  else b.hidden = true;
+}
+let reqBadgeTimer = null;
+async function pollReqBadge(){
+  if (!me) return;
+  const { data, error } = await sb.rpc('list_incoming_requests', { p_me: me.username });
+  if (!error) paintReqBadge((data || []).length);
+}
+function startReqBadgePoll(){
+  stopReqBadgePoll();
+  pollReqBadge();
+  reqBadgeTimer = setInterval(pollReqBadge, 25000);
+}
+function stopReqBadgePoll(){
+  if (reqBadgeTimer) clearInterval(reqBadgeTimer);
+  reqBadgeTimer = null;
 }
 
 /* ---------- profile sheet (avatar + display name on the account) ---------- */
@@ -356,6 +380,7 @@ async function drawFriendsTab(){
   friendsCache = friends.data || [];
   reqInCache = reqIn.data || [];
   reqOutCache = reqOut.data || [];
+  paintReqBadge(reqInCache.length);
 
   $('#mecard').innerHTML =
     `<span class="fav2">${me.av}</span>` +
@@ -1271,6 +1296,58 @@ function drawSearch(){
     box.appendChild(el);
   });
 }
+
+/* ---------- pull-to-refresh (drag down from the top, like Instagram) ---------- */
+(function pullToRefresh(){
+  const el = $('#ptr-indicator');
+  const THRESHOLD = 70;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let startY = null, dragging = false, refreshing = false;
+
+  const scrollTop = () => window.scrollY || document.documentElement.scrollTop || 0;
+  const setDist = px => { el.style.transform = `translateX(-50%) translateY(${px}px)`; };
+
+  window.addEventListener('touchstart', e => {
+    if (refreshing || scrollTop() > 2) { startY = null; return; }
+    startY = e.touches[0].clientY;
+    el.classList.add('dragging');
+  }, { passive: true });
+
+  window.addEventListener('touchmove', e => {
+    if (startY === null || refreshing) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy <= 0 || scrollTop() > 2) { dragging = false; return; }
+    dragging = true;
+    const dist = Math.min(dy * 0.5, 90);
+    setDist(dist);
+    el.style.opacity = Math.min(dist / THRESHOLD, 1);
+    el.classList.toggle('spinning', dist >= THRESHOLD);
+  }, { passive: true });
+
+  window.addEventListener('touchend', async () => {
+    el.classList.remove('dragging');
+    if (!dragging) { startY = null; return; }
+    const ready = el.classList.contains('spinning');
+    dragging = false; startY = null;
+    if (!ready) { setDist(0); el.style.opacity = 0; return; }
+    refreshing = true;
+    setDist(THRESHOLD);
+    el.style.opacity = 1;
+    if (reduced) { await doRefresh(); }
+    else { await Promise.all([doRefresh(), new Promise(r => setTimeout(r, 400))]); }
+    el.classList.remove('spinning');
+    setDist(0);
+    el.style.opacity = 0;
+    refreshing = false;
+  });
+
+  async function doRefresh(){
+    if (!me) return;
+    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge()]);
+    drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
+    toast('Refreshed ✓');
+  }
+})();
 
 /* ---------- init ---------- */
 drawWeek();
