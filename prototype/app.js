@@ -56,57 +56,17 @@ document.addEventListener('click', e => {
 });
 
 /* ============================================================
-   ACCOUNTS — username + password, no email.
-   Storage layer: localStorage today (per-device), designed so a
-   Supabase adapter replaces loadAccounts/saveAccounts + the social
-   store to make usernames globally unique across all devices.
+   ACCOUNTS — username + password, no email required.
+   Real backend: Supabase Postgres. Every account/friend/schedule
+   operation below calls a SECURITY DEFINER SQL function (see
+   /supabase/schema.sql) so passwords are hashed server-side with
+   bcrypt and never touch the client in any form.
    ============================================================ */
+const SUPABASE_URL = 'https://noingtyctnvemgreegcy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable__8xajLrVS-ie0zrRxfsi7Q_nww5wx4c';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 const AVATARS = ['🙂','😎','🐆','🦍','🐬','⚡','🔥','🌊','🏔️','🎧'];
-const USERS_KEY = 'cb_accounts';
-
-function loadAccounts(){ return load(USERS_KEY, {}); }
-function saveAccounts(a){ store(USERS_KEY, a); }
-
-/* password hashing — PBKDF2-HMAC-SHA256, 100k rounds, per-user salt.
-   Deliberately slow to make guessing expensive. Passwords are never
-   stored or transmitted in readable form; only this derived hash is
-   kept, and only on the user's own device. Legacy (v1 sha256) hashes
-   are verified once and silently upgraded on successful sign-in. */
-const PBKDF2_ITERS = 100000;
-async function hashPw(pw, salt){
-  if (window.crypto && crypto.subtle) {
-    const keyMat = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits(
-      { name:'PBKDF2', hash:'SHA-256', salt: new TextEncoder().encode(salt), iterations: PBKDF2_ITERS },
-      keyMat, 256);
-    return 'v2:' + [...new Uint8Array(bits)].map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  /* non-secure contexts (file://) — dev fallback only */
-  let h = 5381;
-  const msg = salt + '::' + pw;
-  for (let i = 0; i < msg.length; i++) h = ((h << 5) + h + msg.charCodeAt(i)) >>> 0;
-  return 'fb' + h.toString(16);
-}
-async function legacyHashPw(pw, salt){
-  if (!(window.crypto && crypto.subtle)) return null;
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + '::' + pw));
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
-/* verify against current scheme, fall back to legacy, upgrade in place */
-async function verifyPw(pw, acc){
-  if (await hashPw(pw, acc.salt) === acc.hash) return true;
-  const legacy = await legacyHashPw(pw, acc.salt);
-  if (legacy && legacy === acc.hash) {
-    acc.salt = newSalt();
-    acc.hash = await hashPw(pw, acc.salt);
-    const accounts = loadAccounts();
-    accounts[acc.username.toLowerCase()] = acc;
-    saveAccounts(accounts);
-    return true;
-  }
-  return false;
-}
-const newSalt = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /* display-name cleanliness filter */
 const BAD_WORDS = ['fuck','shit','bitch','cunt','nigg','fagg','whore','slut','retard','dick','cock','pussy','penis','vagina','rape','nazi'];
@@ -117,7 +77,9 @@ function isCleanName(name){
 
 const USER_RE = /^[A-Za-z0-9_]{3,20}$/;
 
-/* email: optional, recovery only. Stored lowercase; shown masked. */
+/* email: optional, recovery only. Server stores/masks it; the raw
+   address only ever appears client-side when the user themselves
+   just typed it (signup, or entering it during forgot-password). */
 function normEmail(raw){
   const e = raw.trim().toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) ? e : null;
@@ -126,37 +88,18 @@ function maskEmail(e){
   const [n, d] = e.split('@');
   return n[0] + '•••@' + d;
 }
-/* DEMO EMAIL: real delivery comes free with the backend (Supabase /
-   Resend). Until then the code is shown on screen, clearly labeled. */
-function sendCode(email, code){
-  toast(`✉️ DEMO EMAIL to ${maskEmail(email)}: your Corbits code is ${code} (real emails arrive once the backend is live)`);
+/* DEMO EMAIL: sending real mail is the next step (Supabase/Resend).
+   Until then the code is shown on screen, clearly labeled. */
+function sendCode(maskedOrRaw, code){
+  toast(`✉️ DEMO EMAIL to ${maskedOrRaw}: your Corbits code is ${code} (real emails arrive once email sending is turned on)`);
 }
 const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
-/* seeded demo friends so search + requests are testable on one device */
-(async function seedDemo(){
-  const acc = loadAccounts();
-  const demo = [['maya','Maya 🏋️'], ['sam','Sam ⚡'], ['dev','Dev 📚'], ['lena','Lena 🏃']];
-  let changed = false;
-  for (const [u, dn] of demo) {
-    if (!acc[u]) {
-      const salt = newSalt();
-      acc[u] = { username:u, displayName:dn, salt, hash: await hashPw('friends1', salt),
-                 av: AVATARS[(u.length * 3) % AVATARS.length], demo:true };
-      changed = true;
-    }
-  }
-  if (changed) saveAccounts(acc);
-})();
-
 /* ---------- session + gate ---------- */
-let me = null;   /* the signed-in account object */
+let me = null;   /* { username, displayName, av } — the signed-in account */
 let authMode = 'in';
 
-function currentUser(){
-  const u = load('cb_session', null);
-  return u ? loadAccounts()[u] || null : null;
-}
+function currentUser(){ return load('cb_me', null); }
 
 function setAuthMode(m){
   authMode = m;
@@ -194,17 +137,20 @@ function startForgot(){ setAuthMode('fp'); }
 async function authSubmit(){
   const err = m => { $('#g-err').textContent = m; };
   err('');
+  const btn = $('#g-go');
+  const busy = async fn => { btn.disabled = true; try { return await fn(); } finally { btn.disabled = false; } };
+
   if (fp) {
-    const accounts = loadAccounts();
     if (fp.stage === 'email') {
       const em = normEmail($('#g-remail').value);
       if (!em) { err('That email doesn\'t look right'); return; }
-      const acc2 = Object.values(accounts).find(a => a.email === em);
-      if (!acc2) { err('No account uses that email on this device'); return; }
-      fp.key = acc2.username.toLowerCase();
+      const { data, error } = await busy(() => sb.rpc('find_account_by_email', { p_email: em }));
+      if (error) { err('Network error — check your connection and try again'); return; }
+      if (!data.ok) { err('No account uses that email'); return; }
+      fp.key = data.username;
       fp.code = newCode();
       fp.stage = 'code';
-      sendCode(em, fp.code);
+      sendCode(maskEmail(em), fp.code);
       $('#gf-remail').style.display = 'none';
       $('#gf-code').style.display = 'block';
       $('#g-go').textContent = 'Verify code';
@@ -212,9 +158,8 @@ async function authSubmit(){
       $('#g-code').focus();
       return;
     }
-    const acc = accounts[fp.key];
     if (fp.stage === 'code') {
-      if ($('#g-code').value.trim() !== fp.code) { err('Wrong code — check the text we sent'); return; }
+      if ($('#g-code').value.trim() !== fp.code) { err('Wrong code — check the message we sent'); return; }
       fp.stage = 'newpass';
       $('#gf-code').style.display = 'none';
       $('#g-pass').parentElement.style.display = 'block';
@@ -227,89 +172,102 @@ async function authSubmit(){
     if (fp.stage === 'newpass') {
       const np = $('#g-pass').value;
       if (np.length <= 6) { err('Password has to be more than 6 characters'); return; }
-      acc.salt = newSalt();
-      acc.hash = await hashPw(np, acc.salt);
-      accounts[fp.key] = acc;
-      saveAccounts(accounts);
-      store('cb_session', fp.key);
+      const { data, error } = await busy(() => sb.rpc('reset_password', { p_username: fp.key, p_new: np }));
+      if (error || !data.ok) { err('Could not reset the password — try again'); return; }
+      const login = await sb.rpc('login', { p_username: fp.key, p_password: np });
+      if (login.error || !login.data.ok) { err('Reset worked, but sign-in failed — try signing in manually'); return; }
+      store('cb_me', { username: login.data.username, displayName: login.data.display_name, av: login.data.avatar });
       setAuthMode('in');
       $('#g-remail').value = '';
       $('#g-code').value = '';
-      enterApp();
+      await enterApp();
       toast('Password reset — you\'re signed in ✓');
       return;
     }
   }
+
   const user = $('#g-user').value.trim();
   const pass = $('#g-pass').value;
-  const accounts = loadAccounts();
-  const key = user.toLowerCase();
-
   if (!USER_RE.test(user)) { err('Username: 3–20 characters, only letters, numbers and _'); return; }
 
   if (authMode === 'up') {
     let dn = $('#g-name').value.trim() || user;
     if (!isCleanName(dn)) { err('Pick a friendlier display name 🙂'); return; }
     if (pass.length <= 6) { err('Password has to be more than 6 characters'); return; }
-    if (accounts[key]) { err('That username is taken — try another'); return; }
     const rawEmail = $('#g-email').value.trim();
-    let email = null;
+    let email = '';
     if (rawEmail) {
       email = normEmail(rawEmail);
       if (!email) { err('That email doesn\'t look right (or leave it empty)'); return; }
     }
-    const salt = newSalt();
-    accounts[key] = { username:user, displayName:dn, salt, hash: await hashPw(pass, salt), email,
-                      av: AVATARS[Math.floor(Math.random() * AVATARS.length)] };
-    saveAccounts(accounts);
-    store('cb_session', key);
-    enterApp();
+    const av = AVATARS[Math.floor(Math.random() * AVATARS.length)];
+    const { data, error } = await busy(() => sb.rpc('signup', {
+      p_username: user, p_display_name: dn, p_password: pass, p_email: email || null,
+    }));
+    if (error) { err('Network error — check your connection and try again'); return; }
+    if (!data.ok) {
+      err(data.error === 'taken' ? 'That username is taken — try another'
+        : data.error === 'weak_password' ? 'Password has to be more than 6 characters'
+        : 'That username isn\'t allowed — 3–20 letters, numbers and _');
+      return;
+    }
+    store('cb_me', { username: user, displayName: dn, av });
+    await enterApp();
     toast(`Welcome to Corbits, ${dn}!`);
   } else {
-    const acc = accounts[key];
-    if (!acc) { err('No account with that username on this device'); return; }
-    if (!(await verifyPw(pass, acc))) { err('Wrong password'); return; }
-    store('cb_session', key);
-    enterApp();
-    toast(`Welcome back, ${acc.displayName}`);
+    const { data, error } = await busy(() => sb.rpc('login', { p_username: user, p_password: pass }));
+    if (error) { err('Network error — check your connection and try again'); return; }
+    if (!data.ok) { err('Wrong username or password'); return; }
+    store('cb_me', { username: data.username, displayName: data.display_name, av: data.avatar });
+    await enterApp();
+    toast(`Welcome back, ${data.display_name}`);
   }
 }
 
-function personalKey(base){ return base + '_' + me.username.toLowerCase(); }
-function saveDay(){ if (me) store(personalKey('cb_slots'), daySlots); }
-function saveStats(){ if (me) store(personalKey('cb_stats'), { totals, logbook, freqV: freq.series.map(x => x.v) }); }
-function loadPersonal(){
-  const savedSlots = load(personalKey('cb_slots'), null);
-  if (savedSlots) {
-    Object.keys(daySlots).forEach(k => delete daySlots[k]);
-    Object.assign(daySlots, savedSlots);
-  }
-  const st = load(personalKey('cb_stats'), null);
-  if (st) {
-    Object.keys(totals).forEach(k => delete totals[k]);
-    Object.assign(totals, st.totals);
-    logbook.length = 0;
-    logbook.push(...st.logbook);
-    if (st.freqV) freq.series.forEach((x, i) => { if (st.freqV[i]) x.v = st.freqV[i]; });
-  }
+/* stats (weekly chart / all-time totals / logbook) stay local per
+   account for now — not yet moved to the database (see build notes) */
+function statsKey(){ return 'cb_stats_' + me.username.toLowerCase(); }
+function saveStats(){ if (me) store(statsKey(), { totals, logbook, freqV: freq.series.map(x => x.v) }); }
+function loadStats(){
+  const st = load(statsKey(), null);
+  if (!st) return;
+  Object.keys(totals).forEach(k => delete totals[k]);
+  Object.assign(totals, st.totals);
+  logbook.length = 0;
+  logbook.push(...st.logbook);
+  if (st.freqV) freq.series.forEach((x, i) => { if (st.freqV[i]) x.v = st.freqV[i]; });
 }
 
-function enterApp(){
+/* ---------- schedule: synced to the database, shared with friends ---------- */
+function rowToSlot(r){
+  return { id: r.id, act: r.act, c: r.color, t: r.time_label, note: r.note,
+           posted: r.audience, range: r.is_range, tags: r.tags || [], done: r.done };
+}
+async function loadScheduleFromServer(){
+  Object.keys(daySlots).forEach(k => delete daySlots[k]);
+  const { data, error } = await sb.rpc('list_plans', { p_me: me.username, p_owner: me.username });
+  if (error) { toast('Could not load your schedule — check your connection'); return; }
+  data.forEach(r => { (daySlots[r.day_index] = daySlots[r.day_index] || []).push(rowToSlot(r)); });
+}
+
+async function enterApp(){
   me = currentUser();
   if (!me) { $('#authgate').classList.remove('hidden'); return; }
-  loadPersonal();
-  drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
   $('#authgate').classList.add('hidden');
   $('#profilebtn').textContent = me.av;
   $('#pf-name').value = me.displayName;
-  $('#pf-account').textContent = '@' + me.username + (me.demo ? ' · demo account' : '');
-  $('#pf-email').value = me.email ? maskEmail(me.email) : '';
+  $('#pf-account').textContent = '@' + me.username;
   $$('#pf-av button').forEach(b => b.classList.toggle('on', b.textContent === me.av));
+  loadStats();
+  await loadScheduleFromServer();
+  drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
+  const em = await sb.rpc('get_masked_email', { p_username: me.username });
+  $('#pf-email').value = (!em.error && em.data.has_email) ? em.data.masked : '';
   drawFriendsTab();
 }
 
 function logoutUser(){
-  localStorage.removeItem('cb_session');
+  localStorage.removeItem('cb_me');
   me = null;
   closeSheets();
   $('#authgate').classList.remove('hidden');
@@ -327,21 +285,24 @@ function logoutUser(){
   });
 })();
 
-function saveProfile(){
+async function saveProfile(){
   if (!me) return;
   const dn = $('#pf-name').value.trim() || me.username;
   if (!isCleanName(dn)) { toast('Pick a friendlier display name 🙂'); return; }
-  me.displayName = dn;
   const rawEmail = $('#pf-email').value.trim();
-  if (!rawEmail) { me.email = null; }
+  let emailArg = '__unchanged__';
+  if (!rawEmail) emailArg = '';
   else if (!rawEmail.includes('•')) {
     const em = normEmail(rawEmail);
     if (!em) { toast('That email doesn\'t look right'); return; }
-    me.email = em;
+    emailArg = em;
   }
-  const accounts = loadAccounts();
-  accounts[me.username.toLowerCase()] = me;
-  saveAccounts(accounts);
+  const { error } = await sb.rpc('update_profile', {
+    p_username: me.username, p_display_name: dn, p_avatar: me.av, p_email: emailArg,
+  });
+  if (error) { toast('Could not save — check your connection'); return; }
+  me.displayName = dn;
+  store('cb_me', me);
   $('#profilebtn').textContent = me.av;
   closeSheets();
   drawFriendsTab();
@@ -351,108 +312,97 @@ function saveProfile(){
 /* ---------- change password (code if email linked, else current password) ---------- */
 async function changePassword(){
   if (!me) return;
-  if (me.email) {
+  const em = await sb.rpc('get_masked_email', { p_username: me.username });
+  if (em.error) { toast('Could not reach the server — try again'); return; }
+  if (em.data.has_email) {
     const code = newCode();
-    sendCode(me.email, code);
-    const got = prompt(`A verification code was sent to ${maskEmail(me.email)}.\nEnter the 6-digit code:`);
+    sendCode(em.data.masked, code);
+    const got = prompt(`A verification code was sent to ${em.data.masked}.\nEnter the 6-digit code:`);
     if (got === null) return;
     if (got.trim() !== code) { toast('Wrong code — password unchanged'); return; }
+    const np = prompt('New password (more than 6 characters):');
+    if (np === null) return;
+    if (np.length <= 6) { toast('Too short — password has to be more than 6 characters'); return; }
+    const { data, error } = await sb.rpc('reset_password', { p_username: me.username, p_new: np });
+    if (error || !data.ok) { toast('Could not change the password — try again'); return; }
   } else {
     const cur = prompt('No email linked — enter your current password instead:');
     if (cur === null) return;
-    if (!(await verifyPw(cur, me))) { toast('Wrong password — nothing changed'); return; }
+    const np = prompt('New password (more than 6 characters):');
+    if (np === null) return;
+    if (np.length <= 6) { toast('Too short — password has to be more than 6 characters'); return; }
+    const { data, error } = await sb.rpc('change_password', { p_username: me.username, p_old: cur, p_new: np });
+    if (error) { toast('Could not reach the server — try again'); return; }
+    if (!data.ok) { toast('Wrong password — nothing changed'); return; }
   }
-  const np = prompt('New password (more than 6 characters):');
-  if (np === null) return;
-  if (np.length <= 6) { toast('Too short — password has to be more than 6 characters'); return; }
-  me.salt = newSalt();
-  me.hash = await hashPw(np, me.salt);
-  const accounts = loadAccounts();
-  accounts[me.username.toLowerCase()] = me;
-  saveAccounts(accounts);
   toast('Password changed ✓');
 }
 
-/* ---------- friends: search, requests, list ---------- */
-function socialKey(){ return 'cb_social_' + me.username.toLowerCase(); }
-function loadSocial(){ return load(socialKey(), { friends:[], reqIn:[], reqOut:[] }); }
-function saveSocial(x){ store(socialKey(), x); }
-
+/* ---------- friends: search, requests, list — all real, synced via Supabase ---------- */
 function frowHTML(acc, right){
-  return `<div class="frow"><span class="fav2">${acc.av}</span>` +
-    `<div class="g"><div class="dn">${acc.displayName}</div><div class="un">@${acc.username}</div></div>${right}</div>`;
+  return `<div class="frow"><span class="fav2">${acc.avatar}</span>` +
+    `<div class="g"><div class="dn">${acc.display_name}</div><div class="un">@${acc.username}</div></div>${right}</div>`;
 }
 
-function drawFriendsTab(){
+let friendsCache = [], reqInCache = [], reqOutCache = [];
+
+async function drawFriendsTab(){
   if (!me) return;
-  const soc = loadSocial();
-  const accounts = loadAccounts();
+  const [friends, reqIn, reqOut] = await Promise.all([
+    sb.rpc('list_friends', { p_me: me.username }),
+    sb.rpc('list_incoming_requests', { p_me: me.username }),
+    sb.rpc('list_outgoing_requests', { p_me: me.username }),
+  ]);
+  friendsCache = friends.data || [];
+  reqInCache = reqIn.data || [];
+  reqOutCache = reqOut.data || [];
+
   $('#mecard').innerHTML =
     `<span class="fav2">${me.av}</span>` +
-    `<div class="g"><div class="dn">${me.displayName}</div><div class="un">@${me.username} · ${soc.friends.length} friend${soc.friends.length === 1 ? '' : 's'}</div></div>` +
+    `<div class="g"><div class="dn">${me.displayName}</div><div class="un">@${me.username} · ${friendsCache.length} friend${friendsCache.length === 1 ? '' : 's'}</div></div>` +
     `<button class="btn small" onclick="openSheet('profile')">Edit</button>`;
 
-  const inReqs = soc.reqIn.map(u => accounts[u]).filter(Boolean);
-  const outReqs = soc.reqOut.map(u => accounts[u]).filter(Boolean);
-  $('#freqs').innerHTML = (inReqs.length || outReqs.length)
-    ? inReqs.map(a => frowHTML(a, `<button class="btn primary small" onclick="acceptReq('${a.username}')">Accept</button>`)).join('') +
-      outReqs.map(a => frowHTML(a, `<span class="un">Requested…</span>`)).join('')
+  $('#freqs').innerHTML = (reqInCache.length || reqOutCache.length)
+    ? reqInCache.map(a => frowHTML(a, `<button class="btn primary small" onclick="acceptReq('${a.username}')">Accept</button>`)).join('') +
+      reqOutCache.map(a => frowHTML(a, `<span class="un">Requested…</span>`)).join('')
     : '<div class="sub">No pending requests.</div>';
 
-  const friends = soc.friends.map(u => accounts[u]).filter(Boolean);
-  $('#flist').innerHTML = friends.length
-    ? friends.map(a => frowHTML(a, '<span class="st">✓ Friends</span>')).join('')
+  $('#flist').innerHTML = friendsCache.length
+    ? friendsCache.map(a => frowHTML(a, '<span class="st">✓ Friends</span>')).join('')
     : '<div class="sub">No friends yet — search a username above.</div>';
   drawFSearch();
 }
 
-function drawFSearch(){
+async function drawFSearch(){
   const q = $('#fsearch').value.trim().toLowerCase();
   const box = $('#fresults');
   if (!q) { box.innerHTML = '<div class="sub">Type a username above to find people.</div>'; return; }
-  const soc = loadSocial();
-  const accounts = loadAccounts();
-  const hits = Object.values(accounts).filter(a =>
-    a.username.toLowerCase() !== me.username.toLowerCase() &&
-    (a.username.toLowerCase().includes(q) || a.displayName.toLowerCase().includes(q))
-  ).slice(0, 8);
-  if (!hits.length) { box.innerHTML = '<div class="sub">Nobody found — usernames are exact, ask your friend for theirs.</div>'; return; }
-  box.innerHTML = hits.map(a => {
+  const { data, error } = await sb.rpc('search_accounts', { p_query: q, p_exclude: me.username });
+  if (error) { box.innerHTML = '<div class="sub">Could not search — check your connection.</div>'; return; }
+  if (!data.length) { box.innerHTML = '<div class="sub">Nobody found — usernames are exact, ask your friend for theirs.</div>'; return; }
+  box.innerHTML = data.map(a => {
     const u = a.username.toLowerCase();
     let right;
-    if (soc.friends.includes(u)) right = '<span class="st">✓ Friends</span>';
-    else if (soc.reqOut.includes(u)) right = '<span class="un">Requested…</span>';
-    else if (soc.reqIn.includes(u)) right = `<button class="btn primary small" onclick="acceptReq('${u}')">Accept</button>`;
-    else right = `<button class="btn primary small" onclick="sendReq('${u}')">＋ Add</button>`;
+    if (friendsCache.some(f => f.username.toLowerCase() === u)) right = '<span class="st">✓ Friends</span>';
+    else if (reqOutCache.some(f => f.username.toLowerCase() === u)) right = '<span class="un">Requested…</span>';
+    else if (reqInCache.some(f => f.username.toLowerCase() === u)) right = `<button class="btn primary small" onclick="acceptReq('${a.username}')">Accept</button>`;
+    else right = `<button class="btn primary small" onclick="sendReq('${a.username}')">＋ Add</button>`;
     return frowHTML(a, right);
   }).join('');
 }
 $('#fsearch').addEventListener('input', drawFSearch);
 
-function sendReq(u){
-  const soc = loadSocial();
-  if (!soc.reqOut.includes(u)) soc.reqOut.push(u);
-  saveSocial(soc);
-  drawFriendsTab();
-  const acc = loadAccounts()[u];
-  toast(`Request sent to @${u}`);
-  if (acc && acc.demo) {
-    setTimeout(() => {
-      const s2 = loadSocial();
-      s2.reqOut = s2.reqOut.filter(x => x !== u);
-      if (!s2.friends.includes(u)) s2.friends.push(u);
-      saveSocial(s2);
-      drawFriendsTab();
-      toast(`${acc.displayName} accepted! 🎉 (demo — real friends accept from their own phone once the backend is live)`);
-    }, 1500);
-  }
+async function sendReq(u){
+  const { data, error } = await sb.rpc('send_friend_request', { p_from: me.username, p_to: u });
+  if (error) { toast('Could not send the request — check your connection'); return; }
+  if (!data.ok) { toast(data.error === 'already_friends' ? 'Already friends' : 'Could not send request'); return; }
+  await drawFriendsTab();
+  toast(data.status === 'friends' ? `You and @${u} are now friends 🤝` : `Request sent to @${u}`);
 }
-function acceptReq(u){
-  const soc = loadSocial();
-  soc.reqIn = soc.reqIn.filter(x => x !== u);
-  if (!soc.friends.includes(u)) soc.friends.push(u);
-  saveSocial(soc);
-  drawFriendsTab();
+async function acceptReq(u){
+  const { error } = await sb.rpc('accept_friend_request', { p_me: me.username, p_from: u });
+  if (error) { toast('Could not accept — check your connection'); return; }
+  await drawFriendsTab();
   toast(`You and @${u} are now friends 🤝`);
 }
 
@@ -539,14 +489,20 @@ function drawSlots(){
       `<span class="chev">▾</span>` +
       `<button class="del" title="Remove" aria-label="Remove">✕</button>`;
     el.onclick = () => el.classList.toggle('open');
-    el.querySelector('.del').onclick = e => { e.stopPropagation(); list.splice(ix, 1); saveDay(); drawWeek(); drawSlots(); toast('Removed'); };
+    el.querySelector('.del').onclick = e => {
+      e.stopPropagation();
+      const removed = list.splice(ix, 1)[0];
+      drawWeek(); drawSlots(); toast('Removed');
+      if (removed.id) sb.rpc('delete_plan', { p_me: me.username, p_id: removed.id });
+    };
     el.querySelector('.doneb').onclick = e => {
       e.stopPropagation();
-      if (s.done) { s.done = false; saveDay(); drawSlots(); return; }
-      s.done = true;
+      const nextDone = !s.done;
+      s.done = nextDone;
+      if (s.id) sb.rpc('set_plan_done', { p_me: me.username, p_id: s.id, p_done: nextDone });
+      if (!nextDone) { drawSlots(); return; }
       const tags = (s.tags && s.tags.length) ? s.tags : inferTags(s.act, s.note);
       logActivity(s.act, tags, 'from your schedule');
-      saveDay();
       burst(e.clientX, e.clientY, 26);
       drawSlots();
     };
@@ -675,25 +631,30 @@ $('#posttype').addEventListener('click', e => {
   $('#timerow').style.display = b.dataset.v === 'ask' ? 'none' : 'flex';
 });
 
-function postPlan(){
+async function postPlan(){
   if (!curAct) return;
   const f = +$('#t-from').value, t = +$('#t-to').value;
   const type = $('#posttype .on').dataset.v;
   if (type !== 'ask' && t <= f) { toast('End time has to be after start'); return; }
   const aud = $('#c-aud .on').textContent;
   const note = $('#c-note').value.trim() || (type === 'ask' ? '(question)' : 'open to friends in this window');
-  (daySlots[selDay] = daySlots[selDay] || []).push({
-    act: curAct.n, c: curAct.c,
-    t: type === 'ask' ? 'anytime' : `${fmtT(f)}–${fmtT(t)}`,
-    note, posted: aud, range: type !== 'ask',
-    tags: [...compSel],
+  const timeLabel = type === 'ask' ? 'anytime' : `${fmtT(f)}–${fmtT(t)}`;
+  const isRange = type !== 'ask';
+  const tags = [...compSel];
+
+  const { data, error } = await sb.rpc('upsert_plan', {
+    p_me: me.username, p_id: null, p_day: selDay, p_act: curAct.n, p_color: curAct.c,
+    p_time: timeLabel, p_note: note, p_audience: aud, p_range: isRange, p_tags: tags,
   });
+  if (error) { toast('Could not save — check your connection'); return; }
+
+  (daySlots[selDay] = daySlots[selDay] || []).push(rowToSlot(data));
   curAct.uses++;                                   /* usage count drives chip order */
   store('cb_acts', acts);
   bumpTotals(curAct.n, curAct.c);
   hideComposer();
   $('#c-note').value = '';
-  saveDay(); saveStats();
+  saveStats();
   drawWeek(); drawSlots(); drawChips(); drawTotals();
   toast(aud === 'Only me'
     ? 'Added to your schedule (private)'
