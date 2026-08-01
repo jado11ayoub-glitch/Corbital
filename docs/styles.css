@@ -334,3 +334,15 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 /* composer: same visual rule — subs stay small */
 #c-subs button{font-size:11px;padding:4px 11px}
 .tab{min-width:56px;font-size:12.5px}
+
+/* ============ v15: image logotype — "C" mark + "orbitals" reads as Corbitals ============ */
+.logo{display:inline-flex;align-items:center;gap:0}
+.logo-mark{
+  width:0.86em;height:0.86em;flex:none;object-fit:contain;
+  filter:invert(1); margin-right:-1px;
+}
+@media (prefers-color-scheme: dark){
+  .logo-mark{ filter:none; }   /* already white — correct as-is on a dark background */
+}
+:root[data-theme="dark"] .logo-mark{ filter:none; }
+:root[data-theme="light"] .logo-mark{ filter:invert(1); }

@@ -91,7 +91,7 @@ function maskEmail(e){
 /* DEMO EMAIL: sending real mail is the next step (Supabase/Resend).
    Until then the code is shown on screen, clearly labeled. */
 function sendCode(maskedOrRaw, code){
-  toast(`✉️ DEMO EMAIL to ${maskedOrRaw}: your Corbits code is ${code} (real emails arrive once email sending is turned on)`);
+  toast(`✉️ DEMO EMAIL to ${maskedOrRaw}: your Corbitals code is ${code} (real emails arrive once email sending is turned on)`);
 }
 const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -213,7 +213,7 @@ async function authSubmit(){
     }
     store('cb_me', { username: user, displayName: dn, av });
     await enterApp();
-    toast(`Welcome to Corbits, ${dn}!`);
+    toast(`Welcome to Corbitals, ${dn}!`);
   } else {
     const { data, error } = await busy(() => sb.rpc('login', { p_username: user, p_password: pass }));
     if (error) { err('Network error — check your connection and try again'); return; }
