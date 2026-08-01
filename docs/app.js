@@ -42,6 +42,7 @@ function showPanel(t){
   $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === litTab));
   $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
   if (t === 'frds' && me) loadFriendsFeed();
+  if (t === 'plannit' && me) drawAudienceSelectors();
 }
 $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
@@ -55,9 +56,10 @@ document.addEventListener('click', e => {
   const b = e.target.closest('.audsel button');
   if (!b) return;
   const label = b.textContent;
-  if (label.startsWith('＋')) { toast('Adding people/circles: full picker flow is TBD'); return; }
-  if (label.includes('Custom') || label.includes('Pick')) {
-    toast('Custom picker: choose exact people or circles per post (full flow TBD)');
+  if (label === '＋ New circle') { createNewCircle(); return; }
+  if (label.startsWith('＋')) { toast('TBD'); return; }
+  if (label.includes('Pick')) {
+    toast('Custom picker: choose exact people per post (full flow TBD)');
   }
   if (b.parentElement.classList.contains('single')) {
     b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
@@ -280,8 +282,18 @@ async function enterApp(){
   $('#pf-email').value = (!em.error && em.data.has_email) ? em.data.masked : '';
   await drawFriendsTab();
   loadFriendsFeed();
+  await loadCircles();
+  drawAudienceSelectors();
+  drawPrivacyCircles();
   startReqBadgePoll();
   startMsgBadgePoll();
+}
+
+function openPrivacy(){
+  drawAudienceSelectors();
+  drawPrivacyCircles();
+  $$('#notif-pref button').forEach(b => b.classList.toggle('on', b.dataset.v === notifPref()));
+  openSheet('privacy');
 }
 
 function logoutUser(){
@@ -448,6 +460,116 @@ async function declineReq(u){
   if (error) { toast('Could not decline — check your connection'); return; }
   await drawFriendsTab();
   toast(`Declined @${u}`);
+}
+
+/* ---------- circles: one reusable, persistent audience group, used
+   everywhere a "who can see this" picker shows up (composer, Privacy,
+   PLANNIT send-to) — create once, use anywhere, any combination you want. ---------- */
+let circlesCache = [];
+
+async function loadCircles(){
+  if (!me) return;
+  const who = me.username;
+  const { data, error } = await sb.rpc('list_my_circles', { p_me: who });
+  if (!me || me.username !== who) return;
+  if (!error) circlesCache = data || [];
+}
+
+function audienceButtonsHTML(selected){
+  const names = ['Everyone', ...circlesCache.map(c => c.name)];
+  const matches = selected === 'Only me' || names.includes(selected);
+  const fallbackToEveryone = !matches; /* e.g. editing a post whose circle got deleted since */
+  let html = names.map(n =>
+    `<button${n === selected || (fallbackToEveryone && n === 'Everyone') ? ' class="on"' : ''}>${escHTML(n)}</button>`
+  ).join('');
+  html += `<button>＋ New circle</button><button${selected === 'Only me' ? ' class="on"' : ''}>Only me</button>`;
+  return html;
+}
+
+function drawAudienceSelectors(){
+  const cAud = $('#c-aud');
+  if (cAud) { const cur = cAud.querySelector('.on'); cAud.innerHTML = audienceButtonsHTML(cur ? cur.textContent : null); }
+  const defAud = $('#def-aud');
+  if (defAud) { const cur = defAud.querySelector('.on'); defAud.innerHTML = audienceButtonsHTML(cur ? cur.textContent : null); }
+  const plGroup = $('#pl-group');
+  if (plGroup) {
+    const cur = plGroup.value;
+    plGroup.innerHTML = circlesCache.map(c => `<option>Send to: ${escHTML(c.name)}</option>`).join('') + `<option>Pick people…</option>`;
+    if ([...plGroup.options].some(o => o.textContent === cur)) plGroup.value = cur;
+  }
+}
+
+function drawPrivacyCircles(){
+  const box = $('#priv-circles');
+  if (!box) return;
+  box.innerHTML = circlesCache.length
+    ? circlesCache.map(c =>
+        `<button onclick="openCircleMembers('${c.id}', '${escJS(c.name)}')">${escHTML(c.name)} (${c.members.length})</button>`
+      ).join('') + `<button>＋ New circle</button>`
+    : `<button>＋ New circle</button>`;
+}
+
+async function createNewCircle(){
+  const name = prompt('Name this circle — e.g. "Gym crew":');
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const { data, error } = await sb.rpc('create_circle', { p_me: me.username, p_name: trimmed });
+  if (error || !data.ok) {
+    toast(data && data.error === 'taken' ? 'You already have a circle with that name' : 'Could not create — try again');
+    return;
+  }
+  await loadCircles();
+  drawAudienceSelectors();
+  drawPrivacyCircles();
+  toast(`"${trimmed}" created — add friends to it`);
+  openCircleMembers(data.id, trimmed);
+}
+
+let circleMembersTarget = null; /* {id, name} for the circle sheet-circlemembers is managing */
+
+async function openCircleMembers(id, name){
+  circleMembersTarget = { id, name };
+  $('#cm-title').textContent = name;
+  openSheet('circlemembers');
+  drawCircleMembers();
+}
+
+function drawCircleMembers(){
+  if (!circleMembersTarget) return;
+  const circle = circlesCache.find(c => c.id === circleMembersTarget.id);
+  const members = new Set(circle ? circle.members : []);
+  $('#cm-list').innerHTML = friendsCache.length ? friendsCache.map(a => {
+    const inCircle = members.has(a.username);
+    return `<div class="frow"><span class="fav2">${a.avatar}</span>` +
+      `<div class="g"><div class="dn">${a.display_name}</div><div class="un">@${a.username}</div></div>` +
+      `<button class="btn small ${inCircle ? 'primary' : ''}" onclick="toggleCircleMember('${a.username}', ${!inCircle})">${inCircle ? '✓ In circle' : '＋ Add'}</button></div>`;
+  }).join('') : '<div class="sub">Add some friends first — search from FRIENDS.</div>';
+}
+
+async function toggleCircleMember(username, addIt){
+  if (!circleMembersTarget) return;
+  const { data, error } = await sb.rpc('set_circle_member', {
+    p_me: me.username, p_id: circleMembersTarget.id, p_member: username, p_in: addIt,
+  });
+  if (error || !data.ok) { toast('Could not update — try again'); return; }
+  await loadCircles();
+  drawCircleMembers();
+  drawAudienceSelectors();
+  drawPrivacyCircles();
+}
+
+async function deleteCurrentCircle(){
+  if (!circleMembersTarget) return;
+  if (!confirm(`Delete circle "${circleMembersTarget.name}"? You won't be able to post to it again — past posts sent to it are unaffected.`)) return;
+  await sb.rpc('delete_circle', { p_me: me.username, p_id: circleMembersTarget.id });
+  const name = circleMembersTarget.name;
+  closeSheets();
+  circleMembersTarget = null;
+  await loadCircles();
+  drawAudienceSelectors();
+  drawPrivacyCircles();
+  toast(`"${name}" deleted`);
 }
 
 /* ---------- viewing a friend's shared schedule (read-only) ---------- */
@@ -802,8 +924,7 @@ function openComposer(a){
   $('#posttype button[data-v="plan"]').classList.add('on');
   $('#timerow').style.display = 'flex';
   $('#c-note').value = '';
-  $('#c-aud .on').classList.remove('on');
-  $$('#c-aud button')[0].classList.add('on');
+  $('#c-aud').innerHTML = audienceButtonsHTML('Everyone');
   drawCompSubs();
   $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -833,7 +954,7 @@ function openComposerForEdit(day, ix){
     if (th !== null) $('#t-to').value = th;
   }
   $('#c-note').value = s.note || '';
-  $$('#c-aud button').forEach(b => b.classList.toggle('on', b.textContent === s.posted));
+  $('#c-aud').innerHTML = audienceButtonsHTML(s.posted);
   drawCompSubs();
   $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -955,8 +1076,22 @@ function drawRecs(){
         body:`Your streak ends ${dayName(i)} — consider making one day lighter or adding a rest day.` });
     } else streak = 0;
   }
-  recs.push({ ic:'🤝', t:'Two friends run Saturday morning',
-    body:'Sam and Maya both plan runs Saturday morning — post yours as a range to line up.' });
+  /* same-day overload: 3+ separate hard activities stacked on one day */
+  for (let i = 0; i < horizon; i++) {
+    const hardActs = [...new Set((daySlots[i] || []).filter(s => slotTags(s).hard).map(s => s.act))];
+    if (hardActs.length >= 3) {
+      recs.push({ ic:'🥵', t:`${hardActs.join(' + ')} all on ${dayName(i)}`,
+        body:`That's ${hardActs.length} intense activities the same day — nothing's stopping you, but that's a lot of load at once. Worth spacing at least one out, or scaling back intensity on the others.` });
+    }
+  }
+  /* habitual-activity gap: something you usually do a lot is missing from your whole visible window */
+  sortedActs().filter(a => a.uses >= 5).forEach(a => {
+    const scheduled = Array.from({ length: horizon }, (_, i) => daySlots[i] || []).flat().some(s => s.act === a.n);
+    if (!scheduled) {
+      recs.push({ ic:'🫥', t:`No ${a.n} on your calendar right now`,
+        body:`You've logged ${a.n} ${a.uses} times before — it's usually a regular thing for you, but it's not scheduled anywhere in the next ${horizon} days. Might be intentional, might not be — worth a check.` });
+    }
+  });
   const box = $('#recs');
   box.innerHTML = recs.length
     ? recs.map(r =>
@@ -1011,9 +1146,9 @@ function drawFeed(){
         `<div class="actions">` +
         `<button class="btn small primary" onclick="joinPlan(${ix}, this)">🙋 Request to join · <span class="count">${p.joins}</span></button>` +
         `<button class="btn small" onclick="toggleReply(this)">⇄ Suggest a time</button></div>` +
-        `<div class="replybox"><div class="sub" style="margin-bottom:6px">Propose a slot inside ${p.who}'s ${p.from}–${p.to} window:</div>` +
-        `<div class="row"><select class="rf"><option value="18">6 PM</option><option value="19">7 PM</option><option value="20" selected>8 PM</option><option value="21">9 PM</option></select>` +
-        `<span class="sub">to</span><select class="rt"><option value="19">7 PM</option><option value="20">8 PM</option><option value="21" selected>9 PM</option><option value="22">10 PM</option></select>` +
+        `<div class="replybox"><div class="sub" style="margin-bottom:6px">Only needs to overlap with ${p.who}'s ${p.from}–${p.to} — going longer on your end is fine, you two can sort out the rest by message.</div>` +
+        `<div class="row"><select class="rf"><option value="17">5 PM</option><option value="18">6 PM</option><option value="19">7 PM</option><option value="20" selected>8 PM</option><option value="21">9 PM</option></select>` +
+        `<span class="sub">to</span><select class="rt"><option value="19">7 PM</option><option value="20">8 PM</option><option value="21" selected>9 PM</option><option value="22">10 PM</option><option value="23">11 PM</option></select>` +
         `<input placeholder="e.g. chest & triceps" style="flex:1;min-width:120px"></div>` +
         `<button class="btn small primary" onclick="suggestTime(this, '${p.who}')">Send suggestion</button></div>`;
     }
@@ -1331,10 +1466,19 @@ function paintMsgBadge(n){
   else b.hidden = true;
 }
 let msgBadgeTimer = null;
+function notifPref(){ return load('cb_notifpref', 'all'); }
+$('#notif-pref').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  store('cb_notifpref', b.dataset.v);
+  pollMsgBadge();
+});
+
 async function pollMsgBadge(){
   if (!me) return;
   const who = me.username;
-  const { data, error } = await sb.rpc('count_unread_messages', { p_me: who });
+  const rpcName = notifPref() === 'requests' ? 'count_pending_join_requests' : 'count_unread_messages';
+  const { data, error } = await sb.rpc(rpcName, { p_me: who });
   if (!error && me && me.username === who) paintMsgBadge(data || 0);
 }
 function startMsgBadgePoll(){
@@ -1368,7 +1512,7 @@ function suggestTime(btn, who){
   chip.className = 'notechip';
   chip.textContent = `You proposed ${fmtT(f)}–${fmtT(t)}${note ? ' · ' + note : ''} ✓`;
   btn.closest('.card').appendChild(chip);
-  toast(`Sent — if ${who} accepts, it locks into both your SCHD calendars`);
+  toast(`Sent — message ${who} to lock in whatever overlap works for both of you`);
 }
 
 function sendReply(btn){ btn.closest('.replybox').classList.remove('show'); toast('Reply posted 💬'); }

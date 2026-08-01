@@ -73,14 +73,14 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbits">orbits<span class="dot">.</span></div>
-    <span class="pill">prototype v26</span>
+    <span class="pill">prototype v27</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
       <span class="tabbadge" id="msg-badge" hidden>0</span>
     </span>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
-    <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
+    <button class="iconbtn" title="Privacy controls" onclick="openPrivacy()">🛡️</button>
     <button class="iconbtn" title="Build notes — what's missing" onclick="openSheet('notes')">📝</button>
   </div>
   <nav class="tabs" id="tabs">
@@ -137,7 +137,7 @@
     <div class="row">
       <span class="sub">Who can see:</span>
       <div class="audsel single" id="c-aud">
-        <button class="on">Everyone</button><button>Close friends</button><button>Gym crew</button><button>Custom…</button><button>Only me</button>
+        <button class="on">Everyone</button><button>Only me</button>
       </div>
     </div>
     <div class="row">
@@ -199,11 +199,10 @@
   </div>
 
   <div class="card logcard">
-    <div class="goalhead"><h2>Log a workout</h2><span class="pill type">One log · fills every section</span></div>
-    <div class="sub">Pick what you did — it lands in your weekly chart, all-time stats, and any matching trajectory tracker at once. No re-logging.</div>
+    <div class="goalhead"><h2>Log session</h2><span class="pill type">One log · fills every section</span></div>
     <div class="lgr-label">Activity</div>
     <div class="detailrow mains" id="log-acts"></div>
-    <div class="lgr-label">Sub-section <span style="color:var(--ink3)">· part of the activity above</span></div>
+    <div class="lgr-label">Sub-section</div>
     <div class="detailrow subs" id="log-details"></div>
     <div id="log-specs"></div>
     <div class="actions"><button class="btn primary" onclick="logWorkout()">Log it</button></div>
@@ -212,32 +211,27 @@
 
   <div class="card">
     <div class="goalhead"><h2>Consistency</h2><span class="pill type">Type 1 · How often</span></div>
-    <div class="sub">Sessions per week — works for gym, runs, study, “try something new”, anything countable.</div>
     <div class="chart"><div class="bars" id="freqchart"></div></div>
     <div class="legendrow" id="freqlegend"></div>
   </div>
 
   <div class="card">
     <div class="goalhead"><h2>All-time stats</h2><span class="pill type">Totals · month / year / ever</span></div>
-    <div class="sub">Not just per-week — long-run counts of everything you do. Grows automatically every time you log.</div>
     <div id="totals" style="margin-top:6px"></div>
   </div>
 
   <div class="card">
     <div class="goalhead"><h2>Bench 135 lb — reps</h2><span class="pill type">Type 2 · Performance</span></div>
-    <div class="sub">Same test, measured over time. Works for reps at a weight, swim/run times, grades…</div>
     <div class="chart" id="benchchart"></div>
   </div>
 
   <div class="card">
     <div class="goalhead"><h2>400 m swim — time</h2><span class="pill type">Type 2 · Performance</span></div>
-    <div class="sub">Lower is better — the chart flips so up still means improving.</div>
     <div class="chart" id="swimchart"></div>
   </div>
 
   <div class="card">
     <div class="goalhead"><h2>Swim 800 m nonstop</h2><span class="pill type">Type 3 · Progression</span></div>
-    <div class="sub">Milestone ladder — building up to a target, step by step. Works for distance, weight PRs, course units, anything with stages.</div>
     <div class="ladder">
       <div class="step done"><div class="d">400</div><div class="s">Jun 12</div></div>
       <div class="step done"><div class="d">600</div><div class="s">Jul 02</div></div>
@@ -247,10 +241,6 @@
     <div class="actions">
       <button class="btn small" onclick="completeGoal(this)">✔ Hit next milestone</button>
     </div>
-  </div>
-
-  <div class="card">
-    <div class="sub">Every goal picks one of the three tracker shapes above and personalizes the units — so new activity types (volleyball serves, chess rating, café count…) never need new code, just a name + unit + direction (higher/lower is better).</div>
   </div>
 </section>
 
@@ -276,7 +266,6 @@
 
   <div class="card">
     <h2 id="pl-title">Canoe trip planning — 2 weeks</h2>
-    <div class="sub">Tap a cell to cycle your answer. Everyone (including you, the sender) fills the same grid.</div>
     <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
     <div class="legend">
       <span><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes for sure</span>
@@ -400,18 +389,28 @@
   <div class="handle"></div>
   <h3>🛡️ Privacy — one tap away, everywhere</h3>
   <div class="sub" style="margin-bottom:6px">Defaults apply to new posts; every post also has its own “Who can see” override right in the composer.</div>
-  <div class="privrow"><div class="g"><div class="t">Default audience</div><div class="d">Applied to new plans &amp; posts unless you override</div>
-    <div class="audsel single" id="def-aud"><button>Everyone</button><button class="on">Close friends</button><button>Custom…</button><button>Only me</button></div></div>
+  <div class="privrow"><div class="g"><div class="t">Default audience</div>
+    <div class="audsel single" id="def-aud"><button class="on">Everyone</button><button>Only me</button></div></div>
   </div>
-  <div class="privrow"><div class="g"><div class="t">Circles</div><div class="d">Reusable audience groups — pick once, use on any post</div>
-    <div class="audsel"><button class="on">Close friends (6)</button><button class="on">Gym crew (4)</button><button class="on">Study group (3)</button><button>＋ New circle</button></div></div>
+  <div class="privrow"><div class="g"><div class="t">Circles</div><div class="d">Made once here, usable everywhere — the composer, PLANNIT, anywhere you pick who sees something</div>
+    <div class="audsel" id="priv-circles"><button>＋ New circle</button></div></div>
   </div>
-  <div class="privrow"><div class="g"><div class="t">Hidden from</div><div class="d">These people never see your plans, feed posts, or location activity</div>
+  <div class="privrow"><div class="g"><div class="t">Hidden from</div>
     <div class="audsel"><button>＋ Hide someone</button></div></div>
   </div>
-  <div class="privrow"><div class="g"><div class="t">Location visibility</div><div class="d">Who can find you via SEARCH → Location</div>
+  <div class="privrow"><div class="g"><div class="t">Notifications</div><div class="d">What triggers the red badge on 💬 Messages</div>
+    <div class="audsel single" id="notif-pref"><button class="on" data-v="all">Everything</button><button data-v="requests">Only join requests</button></div></div>
+  </div>
+  <div class="privrow"><div class="g"><div class="t">Location visibility</div><div class="d">Manual only — you tap "I'm here", nothing shares your location on its own</div>
     <div class="audsel single"><button>Everyone</button><button class="on">Circles only</button><button>Nobody</button></div></div>
   </div>
+</div>
+
+<div class="sheet" id="sheet-circlemembers" role="dialog" aria-label="Circle members">
+  <div class="handle"></div>
+  <h3 id="cm-title">Circle</h3>
+  <div id="cm-list" style="margin-top:10px"></div>
+  <button class="btn danger" id="cm-delete-btn" style="width:100%;justify-content:center;margin-top:14px" onclick="deleteCurrentCircle()">🗑️ Delete circle</button>
 </div>
 
 <!-- ============ notes sheet ============ -->
@@ -421,16 +420,17 @@
   <ul class="notes">
     <li><span class="q">Overlap engine (PLANNIT):</span> auto-finding best common slots from everyone's grids — flagged for a later session. Grid + colors are in; the math isn't.</li>
     <li><span class="q">Location search:</span> currently canned places (YMCA, Fairview, Don Mills, Bayview). Needs: how locations get added to a network, and region vs. exact-place search rules. Marked TBD.</li>
-    <li><span class="q">Time-range replies:</span> the reply picker enforces staying inside the poster's range, but conflicting sub-ranges from two friends (6–7 vs 6:30–7:30) aren't designed yet — merge? vote? poster picks?</li>
+    <li><span class="q">Time-range replies — decided:</span> a suggestion only needs to overlap with the poster's range, not fit fully inside it — a range is the most you could go, not a fixed commitment. Anything beyond the overlap gets sorted out by message. Live in the demo feed; not wired to a real backend reply flow yet.</li>
     <li><span class="q">Custom activity trackers:</span> the 3 tracker types cover count / measure / ladder, but the "create goal" wizard (pick unit, direction, milestones) is a stub — needs a real flow.</li>
-    <li><span class="q">Universal logger:</span> fan-out currently covers weekly chart, all-time stats, and the bench/swim trend cards via simple tag matching (Gym+Chest → bench, Swim+Distance → swim time). A real version needs a mapping you can edit per goal. <span class="tag-todo">LATER</span></li>\n    <li><span class="q">Smart recommendations:</span> v0 ships 3 hardcoded recovery rules (legs→run, back→swim, 3 hard days→rest). The real version needs a proper muscle-group / intensity model per activity. <span class="tag-todo">LATER</span></li>
-    <li><span class="q">Profile PIN:</span> stored on this device only — fine for a prototype, but real accounts need actual auth eventually (still email-free options exist: passkeys).</li>
-    <li><span class="q">Notifications:</span> nothing yet for "someone joined your plan", "goal congratulated", "invite filled". Probably a bell in the header.</li>
-    <li><span class="q">Groups vs circles:</span> privacy circles, PLANNIT send-groups, and SEARCH groups are three separate ideas — they should probably be one "group" object used everywhere.</li>
-    <li><span class="q">Live status:</span> the LIVE pill in location search implies real-time check-ins — needs a decision: automatic (scary) vs manual "I'm here" (safer).</li>
+    <li><span class="q">Universal logger:</span> fan-out currently covers weekly chart, all-time stats, and the bench/swim trend cards via simple tag matching (Gym+Chest → bench, Swim+Distance → swim time). A real version needs a mapping you can edit per goal. <span class="tag-todo">LATER</span></li>
+    <li><span class="q">Smart recommendations:</span> now flags same-day overload (3+ intense activities stacked on one day) and gaps in habitual activities (something you usually do a lot missing from your whole visible window), on top of the earlier recovery rules (legs→run, back→swim, 3 hard days→rest). Still rule-of-thumb, not a real muscle-group/intensity model. <span class="tag-todo">LATER</span></li>
+    <li><span class="q">Profile auth:</span> real accounts now exist (username + bcrypt-hashed password, server-side). Still no session/JWT, so requests trust the acting username rather than a verified login token — fine for a friends-only trial, not hardened against someone spoofing a username via devtools. Passkeys remain a future email-free upgrade path.</li>
+    <li><span class="q">Notifications — decided:</span> Privacy → Notifications now lets you choose "Everything" or "Only join requests" for what raises the 💬 badge. It's poll-based (checks every few seconds while a screen's open), not a push notification.</li>
+    <li><span class="q">Groups vs circles — decided:</span> Circles are now one real, persistent object — create one, add/remove friends anytime, and it's reusable as the audience on any post plus PLANNIT's send-to. SEARCH groups aren't wired in yet since SEARCH/Location isn't backed by real data.</li>
+    <li><span class="q">Live status — decided:</span> manual only. You'd tap "I'm here" to show up; nothing shares your location automatically. Not built yet — SEARCH/Location is still canned demo data.</li>
     <li><span class="q">Editing/deleting posts</span> after friends have replied with sub-ranges — what happens to their replies?</li>
     <li><span class="q">Names:</span> SCHD / FRDS / GLPR / PLANNIT are placeholders — GLPR especially reads unclear.</li>
-    <li><span class="q">Not built yet (by design):</span> real accounts, friend requests, persistence — everything resets on refresh. It's a look-and-feel prototype.</li>
+    <li><span class="q">Not built yet (by design):</span> PLANNIT send/receive and SEARCH are still look-and-feel demo data — everything else (accounts, friends, schedule, messaging, circles) is real and persists.</li>
   </ul>
 </div>
 

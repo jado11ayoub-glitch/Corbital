@@ -352,8 +352,8 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 /* ============ v14: Corbits rename + logger hierarchy ============ */
 /* mains are unmistakably bigger than their sub-sections */
 .lgr-label{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-top:12px}
-.detailrow.mains button{font-size:16px;font-weight:800;padding:10px 20px;border-width:2px;border-radius:14px}
-.detailrow.subs button{font-size:11px;font-weight:600;padding:4px 11px;opacity:.95}
+.detailrow.mains button{font-size:14px;font-weight:800;padding:8px 16px;border-width:1.5px;border-radius:12px}
+.detailrow.subs button{font-size:12.5px;font-weight:600;padding:6px 13px;border-radius:999px}
 .detailrow.subs button.on{font-weight:700}
 /* composer: same visual rule — subs stay small */
 #c-subs button{font-size:11px;padding:4px 11px}

@@ -260,6 +260,82 @@ returns setof public_accounts language sql security definer as $$
 $$;
 grant execute on function list_outgoing_requests(text) to anon;
 
+-- ---------- circles: one reusable, persistent audience-group concept ----------
+-- used everywhere an audience/recipient list is picked (composer "Who
+-- can see", Privacy circles, PLANNIT send-to) instead of privacy
+-- circles / send-groups / search groups being three separate ideas.
+create table if not exists circles (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null references accounts(username) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now(),
+  unique (owner, name)
+);
+alter table circles enable row level security;
+revoke all on circles from anon, authenticated;
+
+create table if not exists circle_members (
+  circle_id uuid not null references circles(id) on delete cascade,
+  member text not null references accounts(username) on delete cascade,
+  primary key (circle_id, member)
+);
+alter table circle_members enable row level security;
+revoke all on circle_members from anon, authenticated;
+
+create or replace function create_circle(p_me text, p_name text)
+returns json language plpgsql security definer as $$
+declare v_id uuid;
+begin
+  if length(trim(coalesce(p_name,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
+  insert into circles(owner, name) values (p_me, trim(p_name))
+    on conflict (owner, name) do nothing
+    returning id into v_id;
+  if v_id is null then return json_build_object('ok', false, 'error', 'taken'); end if;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function create_circle(text,text) to anon;
+
+create or replace function delete_circle(p_me text, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  delete from circles where id = p_id and owner = p_me;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function delete_circle(text,uuid) to anon;
+
+create or replace function set_circle_member(p_me text, p_id uuid, p_member text, p_in boolean)
+returns json language plpgsql security definer as $$
+begin
+  if not exists (select 1 from circles where id = p_id and owner = p_me) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if not exists (
+    select 1 from friendships where (user_a = p_me and user_b = p_member) or (user_a = p_member and user_b = p_me)
+  ) then
+    return json_build_object('ok', false, 'error', 'not_friends');
+  end if;
+  if p_in then
+    insert into circle_members(circle_id, member) values (p_id, p_member) on conflict do nothing;
+  else
+    delete from circle_members where circle_id = p_id and member = p_member;
+  end if;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function set_circle_member(text,uuid,text,boolean) to anon;
+
+create or replace function list_my_circles(p_me text)
+returns table (id uuid, name text, members text[])
+language sql security definer as $$
+  select c.id, c.name,
+    coalesce(array_agg(cm.member order by cm.member) filter (where cm.member is not null), '{}')
+  from circles c
+  left join circle_members cm on cm.circle_id = c.id
+  where c.owner = p_me
+  group by c.id, c.name
+  order by c.created_at;
+$$;
+grant execute on function list_my_circles(text) to anon;
+
 -- ---------- scheduled workouts (SCHD), shared with friends ----------
 -- "Only me" plans are visible only to the owner; anything else is
 -- visible to the owner and to their accepted friends. Cancelled plans
@@ -300,9 +376,21 @@ returns table (
   where p.owner = p_owner
     and (
       p_owner = p_me
-      or (p.audience <> 'Only me' and exists (
-        select 1 from friendships f where (f.user_a = p_owner and f.user_b = p_me) or (f.user_b = p_owner and f.user_a = p_me)
-      ))
+      or (
+        p.audience <> 'Only me'
+        and exists (
+          select 1 from friendships f where (f.user_a = p_owner and f.user_b = p_me) or (f.user_b = p_owner and f.user_a = p_me)
+        )
+        and (
+          -- audience isn't one of the owner's real circles (e.g. "Everyone") -> visible to all their friends
+          not exists (select 1 from circles c where c.owner = p_owner and c.name = p.audience)
+          -- audience IS a real circle -> only that circle's members can see it
+          or exists (
+            select 1 from circles c join circle_members cm on cm.circle_id = c.id
+            where c.owner = p_owner and c.name = p.audience and cm.member = p_me
+          )
+        )
+      )
     );
 $$;
 grant execute on function list_plans(text,text) to anon;
@@ -326,6 +414,13 @@ returns table (
     and p.audience <> 'Only me'
     and exists (
       select 1 from friendships f where (f.user_a = p.owner and f.user_b = p_me) or (f.user_b = p.owner and f.user_a = p_me)
+    )
+    and (
+      not exists (select 1 from circles c where c.owner = p.owner and c.name = p.audience)
+      or exists (
+        select 1 from circles c join circle_members cm on cm.circle_id = c.id
+        where c.owner = p.owner and c.name = p.audience and cm.member = p_me
+      )
     )
   order by p.created_at desc
   limit 30;
@@ -627,6 +722,20 @@ begin
   return coalesce(v_count, 0);
 end $$;
 grant execute on function count_unread_messages(text) to anon;
+
+-- used when the "Notifications" privacy toggle is set to "Only join
+-- requests" instead of "Everything" — badge only counts what actually
+-- needs your action (a Yes/No), not every text message.
+create or replace function count_pending_join_requests(p_me text)
+returns int language plpgsql security definer as $$
+declare v_count int;
+begin
+  select count(*) into v_count from dm_messages
+    where recipient = p_me and kind = 'join_request' and request_status = 'pending'
+      and sender not in (select blocked from blocks where blocker = p_me);
+  return coalesce(v_count, 0);
+end $$;
+grant execute on function count_pending_join_requests(text) to anon;
 
 create or replace function mark_messages_read(p_me text)
 returns json language plpgsql security definer as $$
