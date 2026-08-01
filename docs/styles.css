@@ -338,8 +338,10 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 /* ============ v15: image logotype — "C" mark + "orbitals" reads as Corbitals ============ */
 .logo{display:inline-flex;align-items:center;gap:0}
 .logo-mark{
-  width:0.86em;height:0.86em;flex:none;object-fit:contain;
-  filter:invert(1); margin-right:-1px;
+  height:0.80em;width:auto;flex:none;object-fit:contain;
+  filter:invert(1);
+  margin-right:-0.16em;
+  transform:translateY(-0.054em);
 }
 @media (prefers-color-scheme: dark){
   .logo-mark{ filter:none; }   /* already white — correct as-is on a dark background */
@@ -347,14 +349,17 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 :root[data-theme="dark"] .logo-mark{ filter:none; }
 :root[data-theme="light"] .logo-mark{ filter:invert(1); }
 
-/* ============ v16: friend-request badge + pull-to-refresh ============ */
-.tab{position:relative}
+/* ============ v16/17: friend-request badge + pull-to-refresh ============ */
+.tab-label{position:relative; display:inline-block}
 .tabbadge{
-  position:absolute; top:3px; right:6px; min-width:16px; height:16px; padding:0 4px;
+  position:absolute; top:-8px; right:-13px; min-width:16px; height:16px; padding:0 4px;
   border-radius:999px; background:var(--no); color:#fff; font-size:10px; font-weight:800;
-  display:flex; align-items:center; justify-content:center; line-height:1;
+  align-items:center; justify-content:center; line-height:1;
   box-shadow:0 0 0 2px var(--bg);
+  display:none;   /* only [hidden] controls visibility; overridden to flex below */
 }
+.tabbadge:not([hidden]){ display:flex; }
+.tabbadge[hidden]{ display:none; }
 
 #ptr-indicator{
   position:fixed; top:-56px; left:50%; z-index:80;
