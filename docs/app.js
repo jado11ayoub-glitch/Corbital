@@ -150,7 +150,7 @@ async function authSubmit(){
       const sent = await busy(() => sb.rpc('send_verification_email', { p_username: fp.key }));
       if (sent.error || !sent.data.ok) { err('Could not send the email — try again in a moment'); return; }
       fp.stage = 'code';
-      toast(`✉️ Code sent to ${maskEmail(em)} — check your inbox`);
+      toast(`✉️ Code sent to ${maskEmail(em)} — CHECK YOUR SPAM FOLDER`);
       $('#gf-remail').style.display = 'none';
       $('#gf-code').style.display = 'block';
       $('#g-go').textContent = 'Verify code';
@@ -347,8 +347,8 @@ async function changePassword(){
   if (em.data.has_email) {
     const sent = await sb.rpc('send_verification_email', { p_username: me.username });
     if (sent.error || !sent.data.ok) { toast('Could not send the email — try again in a moment'); return; }
-    toast(`✉️ Code sent to ${em.data.masked} — check your inbox`);
-    const got = prompt(`A verification code was sent to ${em.data.masked}.\nEnter the 6-digit code:`);
+    toast(`✉️ Code sent to ${em.data.masked} — CHECK YOUR SPAM FOLDER`);
+    const got = prompt(`A verification code was sent to ${em.data.masked}.\nCHECK YOUR SPAM FOLDER if you don't see it.\nEnter the 6-digit code:`);
     if (got === null) return;
     const check = await sb.rpc('verify_code', { p_username: me.username, p_code: got.trim() });
     if (check.error) { toast('Could not reach the server — try again'); return; }
