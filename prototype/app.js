@@ -31,6 +31,7 @@ function showPanel(t){
   const litTab = t === 'friends' ? 'frds' : t;
   $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === litTab));
   $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
+  if (t === 'frds' && me) loadFriendsFeed();
 }
 $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
@@ -88,12 +89,10 @@ function maskEmail(e){
   const [n, d] = e.split('@');
   return n[0] + '•••@' + d;
 }
-/* DEMO EMAIL: sending real mail is the next step (Supabase/Resend).
-   Until then the code is shown on screen, clearly labeled. */
-function sendCode(maskedOrRaw, code){
-  toast(`✉️ DEMO EMAIL to ${maskedOrRaw}: your Corbitals code is ${code} (real emails arrive once email sending is turned on)`);
-}
-const newCode = () => String(Math.floor(100000 + Math.random() * 900000));
+/* Codes are generated, stored, and checked entirely server-side
+   (send_verification_email / verify_code in schema.sql) and delivered
+   by real email via SendGrid — nothing code-related touches the
+   browser except "sent" / "wrong code" outcomes. */
 
 /* ---------- session + gate ---------- */
 let me = null;   /* { username, displayName, av } — the signed-in account */
@@ -148,9 +147,10 @@ async function authSubmit(){
       if (error) { err('Network error — check your connection and try again'); return; }
       if (!data.ok) { err('No account uses that email'); return; }
       fp.key = data.username;
-      fp.code = newCode();
+      const sent = await busy(() => sb.rpc('send_verification_email', { p_username: fp.key }));
+      if (sent.error || !sent.data.ok) { err('Could not send the email — try again in a moment'); return; }
       fp.stage = 'code';
-      sendCode(maskEmail(em), fp.code);
+      toast(`✉️ Code sent to ${maskEmail(em)} — check your inbox`);
       $('#gf-remail').style.display = 'none';
       $('#gf-code').style.display = 'block';
       $('#g-go').textContent = 'Verify code';
@@ -159,7 +159,9 @@ async function authSubmit(){
       return;
     }
     if (fp.stage === 'code') {
-      if ($('#g-code').value.trim() !== fp.code) { err('Wrong code — check the message we sent'); return; }
+      const { data, error } = await busy(() => sb.rpc('verify_code', { p_username: fp.key, p_code: $('#g-code').value.trim() }));
+      if (error) { err('Network error — check your connection and try again'); return; }
+      if (!data.ok) { err('Wrong or expired code — check the email we sent'); return; }
       fp.stage = 'newpass';
       $('#gf-code').style.display = 'none';
       $('#g-pass').parentElement.style.display = 'block';
@@ -249,7 +251,7 @@ async function loadScheduleFromServer(){
   if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
   if (error) { toast('Could not load your schedule — check your connection'); return; }
   Object.keys(daySlots).forEach(k => delete daySlots[k]);
-  data.forEach(r => { (daySlots[r.day_index] = daySlots[r.day_index] || []).push(rowToSlot(r)); });
+  data.filter(r => !r.cancelled).forEach(r => { (daySlots[r.day_index] = daySlots[r.day_index] || []).push(rowToSlot(r)); });
 }
 
 async function enterApp(){
@@ -266,6 +268,7 @@ async function enterApp(){
   const em = await sb.rpc('get_masked_email', { p_username: me.username });
   $('#pf-email').value = (!em.error && em.data.has_email) ? em.data.masked : '';
   await drawFriendsTab();
+  loadFriendsFeed();
   startReqBadgePoll();
 }
 
@@ -342,11 +345,14 @@ async function changePassword(){
   const em = await sb.rpc('get_masked_email', { p_username: me.username });
   if (em.error) { toast('Could not reach the server — try again'); return; }
   if (em.data.has_email) {
-    const code = newCode();
-    sendCode(em.data.masked, code);
+    const sent = await sb.rpc('send_verification_email', { p_username: me.username });
+    if (sent.error || !sent.data.ok) { toast('Could not send the email — try again in a moment'); return; }
+    toast(`✉️ Code sent to ${em.data.masked} — check your inbox`);
     const got = prompt(`A verification code was sent to ${em.data.masked}.\nEnter the 6-digit code:`);
     if (got === null) return;
-    if (got.trim() !== code) { toast('Wrong code — password unchanged'); return; }
+    const check = await sb.rpc('verify_code', { p_username: me.username, p_code: got.trim() });
+    if (check.error) { toast('Could not reach the server — try again'); return; }
+    if (!check.data.ok) { toast('Wrong or expired code — password unchanged'); return; }
     const np = prompt('New password (more than 6 characters):');
     if (np === null) return;
     if (np.length <= 6) { toast('Too short — password has to be more than 6 characters'); return; }
@@ -413,6 +419,7 @@ async function unfriend(u){
   const { error } = await sb.rpc('remove_friend', { p_me: me.username, p_other: u });
   if (error) { toast('Could not remove — check your connection'); return; }
   await drawFriendsTab();
+  loadFriendsFeed();
   toast(`Removed @${u}`);
 }
 async function cancelReq(u){
@@ -443,9 +450,9 @@ async function viewFriendSchedule(u){
   $('#fs-list').innerHTML = Object.entries(byDay).map(([day, rows]) => {
     const label = dayLabel(+day).replace('Today — ', '');
     const items = rows.map(r =>
-      `<div class="slot" style="--c:${r.color}"><div class="stripe"></div>` +
+      `<div class="slot${r.cancelled ? ' done' : ''}" style="--c:${r.color}"><div class="stripe"></div>` +
       `<div style="flex:1"><div class="t">${r.act}${(r.tags && r.tags.length) ? ' · ' + r.tags.join(' + ') : ''} · <span class="mono">${r.time_label}</span></div>` +
-      `<div class="body sub" style="display:block">${r.note}</div></div></div>`
+      `<div class="body sub" style="display:block">${r.cancelled ? '🚫 Event cancelled' : r.note}</div></div></div>`
     ).join('');
     return `<div class="eyebrow">${label}</div>${items}`;
   }).join('');
@@ -481,6 +488,7 @@ async function acceptReq(u){
   const { error } = await sb.rpc('accept_friend_request', { p_me: me.username, p_from: u });
   if (error) { toast('Could not accept — check your connection'); return; }
   await drawFriendsTab();
+  loadFriendsFeed();
   toast(`You and @${u} are now friends 🤝`);
 }
 
@@ -570,8 +578,16 @@ function drawSlots(){
     el.querySelector('.del').onclick = e => {
       e.stopPropagation();
       const removed = list.splice(ix, 1)[0];
-      drawWeek(); drawSlots(); toast('Removed');
-      if (removed.id) sb.rpc('delete_plan', { p_me: me.username, p_id: removed.id });
+      drawWeek(); drawSlots();
+      if (!removed.id) { toast('Removed'); return; }
+      if (removed.posted === 'Only me') {
+        sb.rpc('delete_plan', { p_me: me.username, p_id: removed.id });
+        toast('Removed');
+      } else {
+        /* soft delete: friends who saw this post see "Event cancelled" and can't join it */
+        sb.rpc('cancel_plan', { p_me: me.username, p_id: removed.id });
+        toast('Cancelled — friends who saw this will see it marked cancelled');
+      }
     };
     el.querySelector('.doneb').onclick = e => {
       e.stopPropagation();
@@ -901,6 +917,49 @@ function drawFeed(){
 }
 
 function toggleReply(btn){ btn.closest('.card').querySelector('.replybox').classList.toggle('show'); }
+
+/* ---------- real feed: what friends have actually posted to SCHD ---------- */
+async function loadFriendsFeed(){
+  if (!me) return;
+  const who = me.username;
+  const { data, error } = await sb.rpc('list_friends_feed', { p_me: who });
+  if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
+  const box = $('#realfeed');
+  if (error) { box.innerHTML = ''; return; }
+  if (!data.length) { box.innerHTML = ''; return; }
+  box.innerHTML = data.map(p => {
+    const initials = (p.owner_display || p.owner).trim()[0].toUpperCase();
+    const when = dayName(p.day_index);
+    let actions;
+    if (p.cancelled) {
+      actions = `<div class="cancelled-banner">🚫 Event cancelled — no longer joinable</div>`;
+    } else if (p.joined_by_me) {
+      actions = `<div class="actions"><button class="btn small primary" disabled>✓ Requested to join</button></div>`;
+    } else {
+      actions = `<div class="actions"><button class="btn small primary" onclick="requestJoinPlan('${p.id}', this)">🙋 Request to join · <span class="count">${p.join_count}</span></button></div>`;
+    }
+    return `<div class="card post" style="--c:${p.color}">` +
+      `<div class="head"><div class="avatar">${p.owner_avatar || initials}</div>` +
+      `<div><div class="who">${p.owner_display}</div><div class="when">${when}</div></div>` +
+      `<span class="actbadge">${p.act}</span></div>` +
+      `<div class="kind">${p.cancelled ? 'CANCELLED' : (p.is_range ? 'PLAN' : 'ASK')}</div>` +
+      `<div class="subact">${p.note}${p.is_range ? ' · <span class="mono">' + p.time_label + '</span>' : ''}</div>` +
+      actions +
+      `</div>`;
+  }).join('');
+}
+
+async function requestJoinPlan(planId, btn){
+  btn.disabled = true;
+  const { data, error } = await sb.rpc('request_join_plan', { p_me: me.username, p_plan_id: planId });
+  if (error || !data.ok) {
+    btn.disabled = false;
+    toast(data && data.error === 'cancelled' ? 'This plan was cancelled' : 'Could not send the request — try again');
+    return;
+  }
+  btn.outerHTML = '<button class="btn small primary" disabled>✓ Requested to join</button>';
+  toast('Request sent 🙌');
+}
 
 function joinPlan(ix, btn){
   if (btn.dataset.sent) { toast('Request already sent — waiting on ' + feed[ix].who); return; }
@@ -1396,7 +1455,7 @@ function drawSearch(){
 
   async function doRefresh(){
     if (!me) return;
-    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge()]);
+    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge(), loadFriendsFeed()]);
     drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
     toast('Refreshed ✓');
   }

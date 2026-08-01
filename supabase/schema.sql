@@ -262,10 +262,33 @@ grant execute on function list_outgoing_requests(text) to anon;
 
 -- ---------- scheduled workouts (SCHD), shared with friends ----------
 -- "Only me" plans are visible only to the owner; anything else is
--- visible to the owner and to their accepted friends.
-create or replace function list_plans(p_me text, p_owner text)
-returns setof plans language sql security definer as $$
-  select p.* from plans p
+-- visible to the owner and to their accepted friends. Cancelled plans
+-- stay in the table (soft delete) so friends who saw the original post
+-- see "Event cancelled" instead of it silently disappearing, and can
+-- no longer join it.
+alter table plans add column if not exists cancelled boolean not null default false;
+
+create table if not exists plan_joins (
+  plan_id uuid not null references plans(id) on delete cascade,
+  requester text not null references accounts(username) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (plan_id, requester)
+);
+alter table plan_joins enable row level security;
+revoke all on plan_joins from anon, authenticated;
+
+drop function if exists list_plans(text, text);
+create function list_plans(p_me text, p_owner text)
+returns table (
+  id uuid, owner text, day_index int, act text, color text, time_label text, note text,
+  audience text, is_range boolean, tags text[], done boolean, cancelled boolean, created_at timestamptz,
+  join_count bigint, joined_by_me boolean
+) language sql security definer as $$
+  select p.id, p.owner, p.day_index, p.act, p.color, p.time_label, p.note,
+    p.audience, p.is_range, p.tags, p.done, p.cancelled, p.created_at,
+    (select count(*) from plan_joins j where j.plan_id = p.id) as join_count,
+    exists(select 1 from plan_joins j where j.plan_id = p.id and j.requester = p_me) as joined_by_me
+  from plans p
   where p.owner = p_owner
     and (
       p_owner = p_me
@@ -275,6 +298,55 @@ returns setof plans language sql security definer as $$
     );
 $$;
 grant execute on function list_plans(text,text) to anon;
+
+-- every plan any of your friends have posted to you, newest first —
+-- what actually powers the FRIENDS feed
+create or replace function list_friends_feed(p_me text)
+returns table (
+  id uuid, owner text, owner_display text, owner_avatar text, day_index int, act text, color text,
+  time_label text, note text, audience text, is_range boolean, tags text[], cancelled boolean,
+  created_at timestamptz, join_count bigint, joined_by_me boolean
+) language sql security definer as $$
+  select p.id, p.owner, a.display_name, a.avatar, p.day_index, p.act, p.color, p.time_label, p.note,
+    p.audience, p.is_range, p.tags, p.cancelled, p.created_at,
+    (select count(*) from plan_joins j where j.plan_id = p.id) as join_count,
+    exists(select 1 from plan_joins j where j.plan_id = p.id and j.requester = p_me) as joined_by_me
+  from plans p
+  join accounts a on a.username = p.owner
+  where p.owner <> p_me
+    and p.audience <> 'Only me'
+    and exists (
+      select 1 from friendships f where (f.user_a = p.owner and f.user_b = p_me) or (f.user_b = p.owner and f.user_a = p_me)
+    )
+  order by p.created_at desc
+  limit 30;
+$$;
+grant execute on function list_friends_feed(text) to anon;
+
+-- request to join a friend's posted plan (blocked once it's cancelled)
+create or replace function request_join_plan(p_me text, p_plan_id uuid)
+returns json language plpgsql security definer as $$
+declare v_owner text; v_cancelled boolean;
+begin
+  select owner, cancelled into v_owner, v_cancelled from plans where id = p_plan_id;
+  if v_owner is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  if v_cancelled then return json_build_object('ok', false, 'error', 'cancelled'); end if;
+  if v_owner = p_me then return json_build_object('ok', false, 'error', 'own_plan'); end if;
+  insert into plan_joins(plan_id, requester) values (p_plan_id, p_me) on conflict do nothing;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function request_join_plan(text,uuid) to anon;
+
+-- cancel a posted plan (soft delete) — it disappears from your own
+-- calendar, but friends who already saw it see "Event cancelled" and
+-- can no longer request to join.
+create or replace function cancel_plan(p_me text, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  update plans set cancelled = true where id = p_id and owner = p_me;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function cancel_plan(text,uuid) to anon;
 
 create or replace function upsert_plan(
   p_me text, p_id uuid, p_day int, p_act text, p_color text, p_time text,
@@ -311,6 +383,77 @@ begin
   return json_build_object('ok', true);
 end $$;
 grant execute on function set_plan_done(text,uuid,boolean) to anon;
+
+-- ---------- real verification emails ----------
+-- Codes are generated and checked entirely server-side now (never sent
+-- to or compared in the browser). Sending goes through SendGrid via
+-- pg_net, an HTTP client built into Postgres — no Edge Function or CLI
+-- needed. The API key and verified sender address are read from
+-- Supabase Vault, NOT from this file, so nothing secret ever gets
+-- committed to the repo. See the chat for the one-time Vault setup.
+create extension if not exists pg_net;
+
+create table if not exists verification_codes (
+  username text primary key references accounts(username) on delete cascade,
+  code text not null,
+  expires_at timestamptz not null
+);
+alter table verification_codes enable row level security;
+revoke all on verification_codes from anon, authenticated;
+
+create or replace function send_verification_email(p_username text)
+returns json language plpgsql security definer as $$
+declare
+  v_email text;
+  v_code text;
+  v_api_key text;
+  v_sender text;
+begin
+  select email into v_email from accounts where lower(username) = lower(p_username);
+  if v_email is null then
+    return json_build_object('ok', false, 'error', 'no_email');
+  end if;
+
+  select decrypted_secret into v_api_key from vault.decrypted_secrets where name = 'sendgrid_api_key';
+  select decrypted_secret into v_sender from vault.decrypted_secrets where name = 'sendgrid_sender_email';
+  if v_api_key is null or v_sender is null then
+    return json_build_object('ok', false, 'error', 'email_not_configured');
+  end if;
+
+  v_code := lpad(floor(random() * 1000000)::text, 6, '0');
+  insert into verification_codes(username, code, expires_at)
+    values (p_username, v_code, now() + interval '10 minutes')
+    on conflict (username) do update set code = excluded.code, expires_at = excluded.expires_at;
+
+  perform net.http_post(
+    url := 'https://api.sendgrid.com/v3/mail/send',
+    headers := jsonb_build_object('Authorization', 'Bearer ' || v_api_key, 'Content-Type', 'application/json'),
+    body := jsonb_build_object(
+      'personalizations', jsonb_build_array(jsonb_build_object('to', jsonb_build_array(jsonb_build_object('email', v_email)))),
+      'from', jsonb_build_object('email', v_sender, 'name', 'Corbitals'),
+      'subject', 'Your Corbitals verification code',
+      'content', jsonb_build_array(jsonb_build_object(
+        'type', 'text/plain',
+        'value', 'Your Corbitals verification code is: ' || v_code || E'\n\nThis code expires in 10 minutes. If you didn''t request this, you can ignore it.'
+      ))
+    )
+  );
+  return json_build_object('ok', true);
+end $$;
+grant execute on function send_verification_email(text) to anon;
+
+create or replace function verify_code(p_username text, p_code text)
+returns json language plpgsql security definer as $$
+declare r verification_codes;
+begin
+  select * into r from verification_codes where username = p_username;
+  if r is null or r.code <> p_code or r.expires_at < now() then
+    return json_build_object('ok', false);
+  end if;
+  delete from verification_codes where username = p_username;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function verify_code(text,text) to anon;
 
 -- ---------- demo accounts (password: friends1) ----------
 insert into accounts(username, display_name, avatar, password_hash) values
