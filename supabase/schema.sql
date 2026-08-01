@@ -574,13 +574,15 @@ language sql security definer as $$
     from plan_joins j join plans p on p.id = j.plan_id
     where j.requester = p_me and j.status = 'accepted' and j.has_left = false
   )
-  select m.plan_id,
-    m.act || ' · ' || (array['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])[(m.day_index % 7) + 1] as title,
-    m.owner, m.cancelled,
-    (select body from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_body,
-    (select em.created_at from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_at
-  from mine m
-  order by coalesce(last_at, '1970-01-01'::timestamptz) desc;
+  select t.* from (
+    select m.plan_id,
+      m.act || ' · ' || (array['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])[(m.day_index % 7) + 1] as title,
+      m.owner, m.cancelled,
+      (select body from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_body,
+      (select em.created_at from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_at
+    from mine m
+  ) t
+  order by coalesce(t.last_at, '1970-01-01'::timestamptz) desc;
 $$;
 grant execute on function list_my_event_chats(text) to anon;
 
