@@ -1,5 +1,5 @@
 /* ============================================================
-   Corbitals prototype — behavior
+   Corbits prototype — behavior
    All demo data lives in the plain arrays/objects below —
    edit them freely, refresh the page, done. No build step.
    Profile + activity usage persist in localStorage.
@@ -225,7 +225,7 @@ async function authSubmit(){
     }
     store('cb_me', { username: user, displayName: dn, av });
     await enterApp();
-    toast(`Welcome to Corbitals, ${dn}!`);
+    toast(`Welcome to Corbits, ${dn}!`);
   } else {
     const { data, error } = await busy(() => sb.rpc('login', { p_username: user, p_password: pass }));
     if (error) { err('Network error — check your connection and try again'); return; }
