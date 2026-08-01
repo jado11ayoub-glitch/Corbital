@@ -573,21 +573,11 @@ function drawSlots(){
       `<div class="body"><div class="sub">${s.note}</div><div class="meta">` +
       `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div></div></div>` +
       `<span class="chev">▾</span>` +
-      `<button class="del" title="Remove" aria-label="Remove">✕</button>`;
+      `<button class="more" title="Options" aria-label="Event options">⋮</button>`;
     el.onclick = () => el.classList.toggle('open');
-    el.querySelector('.del').onclick = e => {
+    el.querySelector('.more').onclick = e => {
       e.stopPropagation();
-      const removed = list.splice(ix, 1)[0];
-      drawWeek(); drawSlots();
-      if (!removed.id) { toast('Removed'); return; }
-      if (removed.posted === 'Only me') {
-        sb.rpc('delete_plan', { p_me: me.username, p_id: removed.id });
-        toast('Removed');
-      } else {
-        /* soft delete: friends who saw this post see "Event cancelled" and can't join it */
-        sb.rpc('cancel_plan', { p_me: me.username, p_id: removed.id });
-        toast('Cancelled — friends who saw this will see it marked cancelled');
-      }
+      openSlotMenu(selDay, ix);
     };
     el.querySelector('.doneb').onclick = e => {
       e.stopPropagation();
@@ -603,6 +593,70 @@ function drawSlots(){
     box.appendChild(el);
   });
   drawRecs();
+}
+
+/* ---------- SCHD: 3-dot event menu (rename / edit / delete) ---------- */
+let menuTarget = null; /* {day, ix} for the slot the ⋮ menu / delete confirm is acting on */
+
+function openSlotMenu(day, ix){
+  const s = (daySlots[day] || [])[ix];
+  if (!s) return;
+  menuTarget = { day, ix };
+  $('#sm-title').textContent = s.act + ' — ' + s.t;
+  openSheet('slotmenu');
+}
+
+function renameSlotFromMenu(){
+  if (!menuTarget) return;
+  const { day, ix } = menuTarget;
+  const s = (daySlots[day] || [])[ix];
+  closeSheets();
+  if (!s) return;
+  const next = prompt('Rename this event:', s.note || '');
+  if (next === null) return;
+  const note = next.trim() || s.note;
+  s.note = note;
+  drawSlots();
+  if (s.id) {
+    sb.rpc('upsert_plan', {
+      p_me: me.username, p_id: s.id, p_day: day, p_act: s.act, p_color: s.c,
+      p_time: s.t, p_note: note, p_audience: s.posted, p_range: s.range, p_tags: s.tags || [],
+    });
+  }
+  toast('Renamed ✓');
+}
+
+function editSlotFromMenu(){
+  if (!menuTarget) return;
+  const { day, ix } = menuTarget;
+  closeSheets();
+  openComposerForEdit(day, ix);
+}
+
+function deleteSlotFromMenu(){
+  if (!menuTarget) return;
+  closeSheets();
+  openSheet('confirmdelete');
+}
+
+function confirmDeleteYes(){
+  if (!menuTarget) { closeSheets(); return; }
+  const { day, ix } = menuTarget;
+  const list = daySlots[day] || [];
+  const removed = list.splice(ix, 1)[0];
+  menuTarget = null;
+  closeSheets();
+  drawWeek(); drawSlots();
+  if (!removed) return;
+  if (!removed.id) { toast('Removed'); return; }
+  if (removed.posted === 'Only me') {
+    sb.rpc('delete_plan', { p_me: me.username, p_id: removed.id });
+    toast('Removed');
+  } else {
+    /* soft delete: friends who saw this post see "Event cancelled" and can't join it */
+    sb.rpc('cancel_plan', { p_me: me.username, p_id: removed.id });
+    toast('Cancelled — friends who saw this will see it marked cancelled');
+  }
 }
 
 /* ---------- SCHD: activity chips (favorites + sorted by usage) ---------- */
@@ -708,15 +762,53 @@ function drawCompSubs(){
     row.appendChild(b);
   });
 }
+let editingSlot = null; /* {day, ix} while the composer is editing an existing slot, else null */
+
 function openComposer(a){
+  editingSlot = null;
   curAct = a;
   compSel = [];
   $('#composer').style.display = 'block';
   $('#composer-title').textContent = 'Plan: ' + a.n;
+  $('#posttype .on').classList.remove('on');
+  $('#posttype button[data-v="plan"]').classList.add('on');
+  $('#timerow').style.display = 'flex';
+  $('#c-note').value = '';
+  $('#c-aud .on').classList.remove('on');
+  $$('#c-aud button')[0].classList.add('on');
   drawCompSubs();
   $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
 }
-function hideComposer(){ $('#composer').style.display = 'none'; }
+function hideComposer(){ $('#composer').style.display = 'none'; editingSlot = null; }
+
+function hourFromLabel(label){
+  for (let h = 6; h <= 23; h++) if (fmtT(h) === label) return h;
+  return null;
+}
+
+function openComposerForEdit(day, ix){
+  const s = (daySlots[day] || [])[ix];
+  if (!s) return;
+  editingSlot = { day, ix };
+  curAct = { n: s.act, c: s.c, uses: 0 };
+  compSel = [...(s.tags || [])];
+  $('#composer').style.display = 'block';
+  $('#composer-title').textContent = 'Edit: ' + s.act;
+
+  const isAsk = s.t === 'anytime' && !s.range;
+  $$('#posttype button').forEach(b => b.classList.toggle('on', b.dataset.v === (isAsk ? 'ask' : 'plan')));
+  $('#timerow').style.display = isAsk ? 'none' : 'flex';
+  if (!isAsk) {
+    const [fromLabel, toLabel] = s.t.split('–');
+    const fh = hourFromLabel(fromLabel), th = hourFromLabel(toLabel);
+    if (fh !== null) $('#t-from').value = fh;
+    if (th !== null) $('#t-to').value = th;
+  }
+  $('#c-note').value = s.note || '';
+  $$('#c-aud button').forEach(b => b.classList.toggle('on', b.textContent === s.posted));
+  drawCompSubs();
+  $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
+}
 
 $('#posttype').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -727,6 +819,8 @@ $('#posttype').addEventListener('click', e => {
 
 async function postPlan(){
   if (!curAct) return;
+  const editing = editingSlot;
+  const day = editing ? editing.day : selDay;
   const f = +$('#t-from').value, t = +$('#t-to').value;
   const type = $('#posttype .on').dataset.v;
   if (type !== 'ask' && t <= f) { toast('End time has to be after start'); return; }
@@ -735,24 +829,31 @@ async function postPlan(){
   const timeLabel = type === 'ask' ? 'anytime' : `${fmtT(f)}–${fmtT(t)}`;
   const isRange = type !== 'ask';
   const tags = [...compSel];
+  const existing = editing ? (daySlots[editing.day] || [])[editing.ix] : null;
 
   const { data, error } = await sb.rpc('upsert_plan', {
-    p_me: me.username, p_id: null, p_day: selDay, p_act: curAct.n, p_color: curAct.c,
+    p_me: me.username, p_id: existing ? existing.id : null, p_day: day, p_act: curAct.n, p_color: curAct.c,
     p_time: timeLabel, p_note: note, p_audience: aud, p_range: isRange, p_tags: tags,
   });
   if (error) { toast('Could not save — check your connection'); return; }
 
-  (daySlots[selDay] = daySlots[selDay] || []).push(rowToSlot(data));
-  curAct.uses++;                                   /* usage count drives chip order */
-  store('cb_acts', acts);
-  bumpTotals(curAct.n, curAct.c);
+  if (editing) {
+    daySlots[editing.day][editing.ix] = rowToSlot(data);
+  } else {
+    (daySlots[day] = daySlots[day] || []).push(rowToSlot(data));
+    curAct.uses++;                                 /* usage count drives chip order */
+    store('cb_acts', acts);
+    bumpTotals(curAct.n, curAct.c);
+  }
   hideComposer();
   $('#c-note').value = '';
   saveStats();
   drawWeek(); drawSlots(); drawChips(); drawTotals();
-  toast(aud === 'Only me'
-    ? 'Added to your schedule (private)'
-    : 'Posted — friends can now join or suggest a time inside your range');
+  toast(editing
+    ? 'Event updated ✓'
+    : (aud === 'Only me'
+        ? 'Added to your schedule (private)'
+        : 'Posted — friends can now join or suggest a time inside your range'));
 }
 
 /* ---------- SCHD: smart recommendations (v0 — 3 hardcoded rules) ----------

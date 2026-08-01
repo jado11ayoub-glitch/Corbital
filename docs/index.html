@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbitals">orbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v19</span>
+    <span class="pill">prototype v20</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -336,6 +336,26 @@
   <h3 id="fs-title">🗓️ Schedule</h3>
   <div class="sub" id="fs-sub" style="margin-bottom:10px"></div>
   <div id="fs-list"></div>
+</div>
+
+<div class="sheet" id="sheet-slotmenu" role="dialog" aria-label="Event options">
+  <div class="handle"></div>
+  <h3 id="sm-title">Event options</h3>
+  <div class="row" style="flex-direction:column;gap:8px;margin-top:10px">
+    <button class="btn" style="width:100%;justify-content:center" onclick="renameSlotFromMenu()">✏️ Rename</button>
+    <button class="btn" style="width:100%;justify-content:center" onclick="editSlotFromMenu()">🛠️ Edit</button>
+    <button class="btn danger" style="width:100%;justify-content:center" onclick="deleteSlotFromMenu()">🗑️ Delete</button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-confirmdelete" role="dialog" aria-label="Confirm delete">
+  <div class="handle"></div>
+  <h3>Delete this event?</h3>
+  <div class="sub" style="margin-bottom:14px">This can't be undone. Friends who saw it will see it marked cancelled.</div>
+  <div class="row" style="flex-direction:column;gap:8px">
+    <button class="btn danger" style="width:100%;justify-content:center" onclick="confirmDeleteYes()">Yes, delete it.</button>
+    <button class="btn" style="width:100%;justify-content:center" onclick="closeSheets()">No, don't delete it.</button>
+  </div>
 </div>
 
 <div class="scrim" id="scrim" onclick="closeSheets()"></div>

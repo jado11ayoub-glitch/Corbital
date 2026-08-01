@@ -111,8 +111,8 @@ h2{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
 .slot .stripe{width:4px;align-self:stretch;border-radius:4px;background:var(--c,var(--other));flex:none}
 .slot .t{font-weight:700;font-size:13px}
 .slot .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
-.slot .del{margin-left:auto;color:var(--ink3);font-size:15px;flex:none}
-.slot .del:hover{color:var(--no)}
+.slot .more{margin-left:auto;color:var(--ink3);font-size:17px;flex:none;padding:2px 6px}
+.slot .more:hover{color:var(--ink)}
 .composer{border:1.5px solid var(--brand)}
 .composer .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
 .composer select,.composer input{flex:1;min-width:0}
@@ -253,7 +253,7 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .slot.open .body{display:block}
 .slot .chev,.rec .chev{margin-left:auto;color:var(--ink3);font-size:11px;flex:none;transition:transform .15s}
 .slot.open .chev,.rec.open .chev{transform:rotate(180deg)}
-.slot .del{margin-left:8px}
+.slot .more{margin-left:8px}
 .slot.done{opacity:.72}
 .slot.done .t{text-decoration:line-through;text-decoration-thickness:1.5px}
 .slot .doneb{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--ink3)}
@@ -393,3 +393,5 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
   background:var(--no-soft); color:var(--no); font-weight:700; font-size:13px;
 }
 .btn[disabled]{ opacity:.6; cursor:default; }
+.btn.danger{background:var(--no);color:#fff;border-color:var(--no)}
+.btn.danger:hover{filter:brightness(1.08)}
