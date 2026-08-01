@@ -20,6 +20,11 @@ function openSheet(n){ $('#scrim').classList.add('show'); $('#sheet-' + n).class
 function closeSheets(){ $('#scrim').classList.remove('show'); $$('.sheet').forEach(s => s.classList.remove('show')); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheets(); });
 
+/* escape untrusted text for safe use inside a single-quoted onclick="...('...')" attribute */
+function escJS(s){ return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+/* escape untrusted text for safe use inside innerHTML (chat message bodies, etc.) */
+function escHTML(s){ return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
 function store(key, val){ try { localStorage.setItem(key, JSON.stringify(val)); } catch(e){} }
 function load(key, fallback){
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
@@ -271,12 +276,15 @@ async function enterApp(){
   await drawFriendsTab();
   loadFriendsFeed();
   startReqBadgePoll();
+  startMsgBadgePoll();
 }
 
 function logoutUser(){
   localStorage.removeItem('cb_me');
   me = null;
   stopReqBadgePoll();
+  stopMsgBadgePoll();
+  activeChat = null;
   closeSheets();
   $('#authgate').classList.remove('hidden');
   $('#g-pass').value = '';
@@ -410,6 +418,7 @@ async function drawFriendsTab(){
   $('#flist').innerHTML = friendsCache.length
     ? friendsCache.map(a => frowHTML(a,
         `<button class="btn small" onclick="viewFriendSchedule('${a.username}')">📅 Schedule</button>` +
+        `<button class="btn small" onclick="openDMChat('${a.username}', '${escJS(a.display_name)}')" title="Message">💬</button>` +
         `<button class="btn small" onclick="unfriend('${a.username}')" title="Remove friend">Unfriend</button>`)).join('')
     : '<div class="sub">No friends yet — search a username above.</div>';
   drawFSearch();
@@ -1048,8 +1057,10 @@ async function loadFriendsFeed(){
     let actions;
     if (p.cancelled) {
       actions = `<div class="cancelled-banner">🚫 Event cancelled — no longer joinable</div>`;
-    } else if (p.joined_by_me) {
-      actions = `<div class="actions"><button class="btn small primary" disabled>✓ Requested to join</button></div>`;
+    } else if (p.my_join_status === 'accepted') {
+      actions = `<div class="actions"><button class="btn small primary" onclick="openEventChat('${p.id}','${escJS(p.act)}')">💬 Open event chat</button></div>`;
+    } else if (p.my_join_status === 'pending') {
+      actions = `<div class="actions"><button class="btn small" disabled>🙋 Requested — waiting for approval</button></div>`;
     } else {
       actions = `<div class="actions"><button class="btn small primary" onclick="requestJoinPlan('${p.id}', this)">🙋 Request to join · <span class="count">${p.join_count}</span></button></div>`;
     }
@@ -1069,11 +1080,232 @@ async function requestJoinPlan(planId, btn){
   const { data, error } = await sb.rpc('request_join_plan', { p_me: me.username, p_plan_id: planId });
   if (error || !data.ok) {
     btn.disabled = false;
-    toast(data && data.error === 'cancelled' ? 'This plan was cancelled' : 'Could not send the request — try again');
+    const errs = { cancelled:'This plan was cancelled', blocked:'Could not send the request',
+      already_joined:"You're already in this event", already_requested:'Already requested — waiting on them' };
+    toast((data && errs[data.error]) || 'Could not send the request — try again');
     return;
   }
-  btn.outerHTML = '<button class="btn small primary" disabled>✓ Requested to join</button>';
-  toast('Request sent 🙌');
+  btn.outerHTML = '<button class="btn small" disabled>🙋 Requested — waiting for approval</button>';
+  toast('Request sent — they\'ll see it in Messages 🙌');
+}
+
+/* ---------- messages: DM threads + event group chats ---------- */
+let msgMode = 'dm';                 /* 'dm' | 'events' — which list the Messages sheet shows */
+let activeChat = null;              /* {type:'dm', other, otherDisplay} or {type:'event', planId, title} */
+
+function openMessages(){
+  if (!me) return;
+  msgMode = 'dm';
+  $$('#msg-seg button').forEach(b => b.classList.toggle('on', b.dataset.m === 'dm'));
+  openSheet('messages');
+  drawMessagesList();
+  markMessagesRead();
+}
+$('#msg-seg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  msgMode = b.dataset.m;
+  $$('#msg-seg button').forEach(x => x.classList.toggle('on', x === b));
+  drawMessagesList();
+});
+
+async function drawMessagesList(){
+  const box = $('#msg-list');
+  box.innerHTML = '<div class="sub">Loading…</div>';
+  const who = me.username;
+  if (msgMode === 'dm') {
+    const { data, error } = await sb.rpc('list_dm_threads', { p_me: who });
+    if (!me || me.username !== who) return;
+    if (error) { box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
+    if (!data.length) { box.innerHTML = '<div class="sub">No messages yet — message a friend from the FRIENDS tab.</div>'; return; }
+    box.innerHTML = data.map(t => {
+      let preview;
+      if (t.last_kind === 'join_request') {
+        preview = t.last_request_status === 'pending'
+          ? (t.last_sender === who ? '🙋 Join request sent — waiting' : '🙋 Wants to join your event')
+          : `🙋 Join request — ${t.last_request_status}`;
+      } else {
+        preview = (t.last_sender === who ? 'You: ' : '') + escHTML(t.last_body);
+      }
+      return `<div class="frow" style="cursor:pointer" onclick="openDMChat('${t.other}','${escJS(t.other_display)}')">` +
+        `<span class="fav2">${t.other_avatar}</span>` +
+        `<div class="g"><div class="dn">${t.other_display}</div><div class="un">${preview}</div></div></div>`;
+    }).join('');
+  } else {
+    const { data, error } = await sb.rpc('list_my_event_chats', { p_me: who });
+    if (!me || me.username !== who) return;
+    if (error) { box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
+    if (!data.length) { box.innerHTML = '<div class="sub">No event chats yet — post or join an event to start one.</div>'; return; }
+    box.innerHTML = data.map(c => {
+      const preview = c.last_body ? escHTML(c.last_body) : 'No messages yet';
+      return `<div class="frow" style="cursor:pointer" onclick="openEventChat('${c.plan_id}','${escJS(c.title)}')">` +
+        `<span class="fav2">${c.owner === who ? '👑' : '💬'}</span>` +
+        `<div class="g"><div class="dn">${c.title}${c.cancelled ? ' (cancelled)' : ''}</div><div class="un">${preview}</div></div></div>`;
+    }).join('');
+  }
+}
+
+async function openDMChat(other, otherDisplay){
+  activeChat = { type:'dm', other, otherDisplay };
+  $('#chat-title').textContent = otherDisplay || ('@' + other);
+  $('#chat-members-btn').style.display = 'none';
+  openSheet('chat');
+  await drawChatMessages();
+  markMessagesRead();
+}
+
+async function openEventChat(planId, title){
+  activeChat = { type:'event', planId, title };
+  $('#chat-title').textContent = title;
+  $('#chat-members-btn').style.display = 'inline-flex';
+  openSheet('chat');
+  await drawChatMessages();
+  markMessagesRead();
+}
+
+async function drawChatMessages(){
+  if (!activeChat) return;
+  const chat = activeChat;
+  const box = $('#chat-messages');
+  box.innerHTML = '<div class="sub">Loading…</div>';
+  if (chat.type === 'dm') {
+    const { data, error } = await sb.rpc('list_dm_messages', { p_me: me.username, p_other: chat.other });
+    if (activeChat !== chat) return;
+    if (error) { box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+    box.innerHTML = data.map(renderDMBubble).join('') || '<div class="sub">Say hi 👋</div>';
+  } else {
+    const { data, error } = await sb.rpc('list_event_messages', { p_me: me.username, p_plan_id: chat.planId });
+    if (activeChat !== chat) return;
+    if (error) { box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+    box.innerHTML = data.map(renderEventBubble).join('') || '<div class="sub">No messages yet — say hi 👋</div>';
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+function renderDMBubble(m){
+  const mine = m.sender === me.username;
+  if (m.kind === 'join_request') {
+    let statusLine;
+    if (m.request_status === 'pending' && !mine) {
+      statusLine = `<div class="row" style="gap:8px;margin-top:8px">` +
+        `<button class="btn small primary" onclick="respondJoinRequest('${m.id}', true)">Yes</button>` +
+        `<button class="btn small danger" onclick="respondJoinRequest('${m.id}', false)">No</button></div>`;
+    } else if (m.request_status === 'pending' && mine) {
+      statusLine = `<div class="sub" style="margin-top:4px">Waiting for approval…</div>`;
+    } else {
+      statusLine = `<div class="sub" style="margin-top:4px">${m.request_status === 'accepted' ? '✅ Accepted' : '❌ Declined'}</div>`;
+    }
+    return `<div class="card" style="margin-bottom:8px">🙋 ${escHTML(m.body)}${statusLine}</div>`;
+  }
+  return `<div class="card" style="margin-bottom:8px${mine ? ';border-color:var(--brand)' : ''}">` +
+    `<div class="sub" style="margin-bottom:2px">${mine ? 'You' : ''}</div>${escHTML(m.body)}</div>`;
+}
+
+function renderEventBubble(m){
+  const mine = m.sender === me.username;
+  return `<div class="card" style="margin-bottom:8px${mine ? ';border-color:var(--brand)' : ''}">` +
+    `<div class="sub" style="margin-bottom:2px">${m.sender_avatar} ${mine ? 'You' : escHTML(m.sender_display)}</div>${escHTML(m.body)}</div>`;
+}
+
+async function sendChatMessage(){
+  const input = $('#chat-input');
+  const body = input.value.trim();
+  if (!body || !activeChat) return;
+  const chat = activeChat;
+  input.value = '';
+  const res = chat.type === 'dm'
+    ? await sb.rpc('send_dm', { p_me: me.username, p_to: chat.other, p_body: body })
+    : await sb.rpc('send_event_message', { p_me: me.username, p_plan_id: chat.planId, p_body: body });
+  if (activeChat !== chat) return;
+  if (res.error || !res.data || !res.data.ok) {
+    const errs = { not_friends:'You can only message friends', blocked:'Could not send — blocked', not_member:'You\'re no longer in this event chat' };
+    toast((res.data && errs[res.data.error]) || 'Could not send — try again');
+    input.value = body;
+    return;
+  }
+  await drawChatMessages();
+}
+$('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMessage(); });
+
+async function respondJoinRequest(messageId, accept){
+  const { data, error } = await sb.rpc('respond_join_request', { p_me: me.username, p_message_id: messageId, p_accept: accept });
+  if (error || !data.ok) { toast('Could not respond — try again'); return; }
+  toast(accept ? 'Accepted into the event ✓' : 'Declined');
+  await drawChatMessages();
+  drawMessagesList();
+  pollMsgBadge();
+  loadFriendsFeed();
+}
+
+async function openChatMembers(){
+  if (!activeChat || activeChat.type !== 'event') return;
+  const chat = activeChat;
+  openSheet('chatmembers');
+  const box = $('#chatmembers-list');
+  box.innerHTML = '<div class="sub">Loading…</div>';
+  const { data, error } = await sb.rpc('list_event_members', { p_me: me.username, p_plan_id: chat.planId });
+  if (activeChat !== chat) return;
+  if (error) { box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+  const iAmOwner = data.some(mem => mem.is_owner && mem.username === me.username);
+  $('#leave-chat-btn').style.display = iAmOwner ? 'none' : 'flex';
+  const others = data.filter(mem => mem.username !== me.username);
+  box.innerHTML = others.length ? others.map(mem => {
+    const blockBtn = mem.blocked_by_me
+      ? `<button class="btn small" onclick="unblockFromChat('${mem.username}')">Unblock</button>`
+      : `<button class="btn small danger" onclick="blockFromChat('${mem.username}')">Block</button>`;
+    return `<div class="frow"><span class="fav2">${mem.avatar}</span>` +
+      `<div class="g"><div class="dn">${mem.display_name}${mem.is_owner ? ' 👑' : ''}</div><div class="un">@${mem.username}${mem.blocked_by_me ? ' · blocked' : ''}</div></div>${blockBtn}</div>`;
+  }).join('') : '<div class="sub">Just you in here so far.</div>';
+}
+
+async function blockFromChat(u){
+  if (!confirm(`Block @${u}? You won't see their messages anywhere, in this chat or in DMs.`)) return;
+  await sb.rpc('block_user', { p_me: me.username, p_target: u });
+  openChatMembers();
+  drawChatMessages();
+}
+async function unblockFromChat(u){
+  await sb.rpc('unblock_user', { p_me: me.username, p_target: u });
+  openChatMembers();
+  drawChatMessages();
+}
+
+async function leaveCurrentEventChat(){
+  if (!activeChat || activeChat.type !== 'event') return;
+  if (!confirm('Leave this event chat? Your join will be removed and you\'ll stop seeing its messages.')) return;
+  const { data, error } = await sb.rpc('leave_event_chat', { p_me: me.username, p_plan_id: activeChat.planId });
+  if (error || !data.ok) { toast('Could not leave — try again'); return; }
+  closeSheets();
+  activeChat = null;
+  toast('Left the event chat');
+  loadFriendsFeed();
+  drawMessagesList();
+}
+
+/* ---------- messages: red-circle badge, mirrors the FRIENDS request badge ---------- */
+function paintMsgBadge(n){
+  const b = $('#msg-badge');
+  if (n > 0) { b.textContent = n > 9 ? '9+' : n; b.hidden = false; }
+  else b.hidden = true;
+}
+let msgBadgeTimer = null;
+async function pollMsgBadge(){
+  if (!me) return;
+  const who = me.username;
+  const { data, error } = await sb.rpc('count_unread_messages', { p_me: who });
+  if (!error && me && me.username === who) paintMsgBadge(data || 0);
+}
+function startMsgBadgePoll(){
+  stopMsgBadgePoll();
+  pollMsgBadge();
+  msgBadgeTimer = setInterval(pollMsgBadge, 25000);
+}
+function stopMsgBadgePoll(){ if (msgBadgeTimer) clearInterval(msgBadgeTimer); msgBadgeTimer = null; }
+
+async function markMessagesRead(){
+  if (!me) return;
+  await sb.rpc('mark_messages_read', { p_me: me.username });
+  pollMsgBadge();
 }
 
 function joinPlan(ix, btn){
@@ -1570,7 +1802,7 @@ function drawSearch(){
 
   async function doRefresh(){
     if (!me) return;
-    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge(), loadFriendsFeed()]);
+    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge(), loadFriendsFeed(), pollMsgBadge()]);
     drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
     toast('Refreshed ✓');
   }

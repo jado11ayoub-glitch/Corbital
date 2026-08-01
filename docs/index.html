@@ -73,8 +73,12 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbitals">orbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v21</span>
+    <span class="pill">prototype v22</span>
     <div class="spacer"></div>
+    <span style="position:relative;display:inline-block">
+      <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
+      <span class="tabbadge" id="msg-badge" hidden>0</span>
+    </span>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
     <button class="iconbtn" title="Build notes — what's missing" onclick="openSheet('notes')">📝</button>
@@ -336,6 +340,36 @@
   <h3 id="fs-title">🗓️ Schedule</h3>
   <div class="sub" id="fs-sub" style="margin-bottom:10px"></div>
   <div id="fs-list"></div>
+</div>
+
+<div class="sheet" id="sheet-messages" role="dialog" aria-label="Messages">
+  <div class="handle"></div>
+  <h3>💬 Messages</h3>
+  <div class="seg" id="msg-seg" style="margin:10px 0">
+    <button class="on" data-m="dm">Direct</button>
+    <button data-m="events">Events</button>
+  </div>
+  <div id="msg-list"></div>
+</div>
+
+<div class="sheet" id="sheet-chat" role="dialog" aria-label="Chat">
+  <div class="handle"></div>
+  <div class="row" style="align-items:center;justify-content:space-between;flex-wrap:nowrap">
+    <h3 id="chat-title" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Chat</h3>
+    <button class="btn small" id="chat-members-btn" onclick="openChatMembers()" style="display:none;flex:none">👥</button>
+  </div>
+  <div id="chat-messages" style="max-height:48vh;overflow-y:auto;margin:12px 0"></div>
+  <div class="row" style="gap:8px;flex-wrap:nowrap">
+    <input id="chat-input" placeholder="Message…" style="flex:1" autocomplete="off">
+    <button class="btn primary small" style="flex:none" onclick="sendChatMessage()">Send</button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-chatmembers" role="dialog" aria-label="Chat members">
+  <div class="handle"></div>
+  <h3>👥 Members</h3>
+  <div id="chatmembers-list" style="margin-top:10px"></div>
+  <button class="btn danger" id="leave-chat-btn" style="width:100%;justify-content:center;margin-top:14px" onclick="leaveCurrentEventChat()">🚪 Leave this event chat</button>
 </div>
 
 <div class="sheet" id="sheet-slotmenu" role="dialog" aria-label="Event options">
