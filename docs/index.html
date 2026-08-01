@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbitals">orbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v20</span>
+    <span class="pill">prototype v21</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -344,17 +344,17 @@
   <div class="row" style="flex-direction:column;gap:8px;margin-top:10px">
     <button class="btn" style="width:100%;justify-content:center" onclick="renameSlotFromMenu()">✏️ Rename</button>
     <button class="btn" style="width:100%;justify-content:center" onclick="editSlotFromMenu()">🛠️ Edit</button>
-    <button class="btn danger" style="width:100%;justify-content:center" onclick="deleteSlotFromMenu()">🗑️ Delete</button>
+    <button class="btn danger" style="width:100%;justify-content:center" onclick="cancelSlotFromMenu()">🚫 Cancel event</button>
   </div>
 </div>
 
-<div class="sheet" id="sheet-confirmdelete" role="dialog" aria-label="Confirm delete">
+<div class="sheet" id="sheet-confirmcancel" role="dialog" aria-label="Confirm cancel">
   <div class="handle"></div>
-  <h3>Delete this event?</h3>
-  <div class="sub" style="margin-bottom:14px">This can't be undone. Friends who saw it will see it marked cancelled.</div>
+  <h3>Cancel this event?</h3>
+  <div class="sub" style="margin-bottom:14px">It'll stay visible marked "Cancelled" — for you and for friends who saw it — and no one will be able to join it anymore.</div>
   <div class="row" style="flex-direction:column;gap:8px">
-    <button class="btn danger" style="width:100%;justify-content:center" onclick="confirmDeleteYes()">Yes, delete it.</button>
-    <button class="btn" style="width:100%;justify-content:center" onclick="closeSheets()">No, don't delete it.</button>
+    <button class="btn danger" style="width:100%;justify-content:center" onclick="confirmCancelYes()">Yes, cancel it.</button>
+    <button class="btn" style="width:100%;justify-content:center" onclick="closeSheets()">No, don't cancel it.</button>
   </div>
 </div>
 

@@ -259,6 +259,8 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .slot .doneb{flex:none;width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--ink3)}
 .slot .doneb:hover{border-color:var(--yes);color:var(--yes)}
 .slot.done .doneb{background:var(--yes);border-color:var(--yes);color:var(--on-brand)}
+.slot.cancelled{opacity:.75}
+.slot .doneb.cancelledmark{background:var(--no-soft);border-color:var(--no);color:var(--no);cursor:default}
 .rec{cursor:pointer;flex-wrap:wrap}
 .rec .tt{font-weight:700;font-size:13px;flex:1}
 .rec .body{display:none;width:100%;padding-left:26px}

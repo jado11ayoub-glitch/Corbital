@@ -243,7 +243,8 @@ function loadStats(){
 /* ---------- schedule: synced to the database, shared with friends ---------- */
 function rowToSlot(r){
   return { id: r.id, act: r.act, c: r.color, t: r.time_label, note: r.note,
-           posted: r.audience, range: r.is_range, tags: r.tags || [], done: r.done };
+           posted: r.audience, range: r.is_range, tags: r.tags || [], done: r.done,
+           cancelled: !!r.cancelled, edited: !!r.edited };
 }
 async function loadScheduleFromServer(){
   const who = me.username;
@@ -251,7 +252,7 @@ async function loadScheduleFromServer(){
   if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
   if (error) { toast('Could not load your schedule — check your connection'); return; }
   Object.keys(daySlots).forEach(k => delete daySlots[k]);
-  data.filter(r => !r.cancelled).forEach(r => { (daySlots[r.day_index] = daySlots[r.day_index] || []).push(rowToSlot(r)); });
+  data.forEach(r => { (daySlots[r.day_index] = daySlots[r.day_index] || []).push(rowToSlot(r)); });
 }
 
 async function enterApp(){
@@ -450,9 +451,10 @@ async function viewFriendSchedule(u){
   $('#fs-list').innerHTML = Object.entries(byDay).map(([day, rows]) => {
     const label = dayLabel(+day).replace('Today — ', '');
     const items = rows.map(r =>
-      `<div class="slot${r.cancelled ? ' done' : ''}" style="--c:${r.color}"><div class="stripe"></div>` +
+      `<div class="slot${r.cancelled ? ' cancelled' : ''}" style="--c:${r.color}"><div class="stripe"></div>` +
       `<div style="flex:1"><div class="t">${r.act}${(r.tags && r.tags.length) ? ' · ' + r.tags.join(' + ') : ''} · <span class="mono">${r.time_label}</span></div>` +
-      `<div class="body sub" style="display:block">${r.cancelled ? '🚫 Event cancelled' : r.note}</div></div></div>`
+      `<div class="body sub" style="display:block">${r.note}${r.edited && !r.cancelled ? ' (edited)' : ''}` +
+      `${r.cancelled ? '<div class="cancelled-banner">🚫 Event cancelled</div>' : ''}</div></div></div>`
     ).join('');
     return `<div class="eyebrow">${label}</div>${items}`;
   }).join('');
@@ -542,7 +544,7 @@ function drawWeek(){
   for (let i = 0; i < total; i++) {
     const el = document.createElement('button');
     el.className = 'day' + (i === selDay ? ' on' : '');
-    const marks = (daySlots[i] || []).slice(0, 3)
+    const marks = (daySlots[i] || []).filter(s => !s.cancelled).slice(0, 3)
       .map(s => `<i style="background:${i === selDay ? 'var(--on-brand)' : s.c}"></i>`).join('');
     el.innerHTML = `<div class="dow">${DOW[i % 7]}</div><div class="num">${dayDate(i).getDate()}</div><div class="marks">${marks}</div>`;
     el.onclick = () => { selDay = i; drawWeek(); drawSlots(); };
@@ -564,17 +566,23 @@ function drawSlots(){
   }
   list.forEach((s, ix) => {
     const el = document.createElement('div');
-    el.className = 'slot' + (s.done ? ' done' : '');
+    el.className = 'slot' + (s.done ? ' done' : '') + (s.cancelled ? ' cancelled' : '');
     el.style.setProperty('--c', s.c);
+    const noteText = s.note + (s.edited && !s.cancelled ? ' (edited)' : '');
+    const actions = s.cancelled
+      ? `<span class="doneb cancelledmark" title="Cancelled" aria-label="Cancelled">🚫</span>`
+      : `<button class="doneb" title="Mark done — logs it everywhere" aria-label="Mark done">✓</button>`;
     el.innerHTML =
       `<div class="stripe"></div>` +
-      `<button class="doneb" title="Mark done — logs it everywhere" aria-label="Mark done">✓</button>` +
+      actions +
       `<div style="flex:1"><div class="t">${s.act}${(s.tags && s.tags.length) ? ' · ' + s.tags.join(' + ') : ''} · <span class="mono">${s.t}</span></div>` +
-      `<div class="body"><div class="sub">${s.note}</div><div class="meta">` +
-      `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div></div></div>` +
-      `<span class="chev">▾</span>` +
-      `<button class="more" title="Options" aria-label="Event options">⋮</button>`;
+      `<div class="body"><div class="sub">${noteText}</div><div class="meta">` +
+      `${s.range ? '<span class="pill">⇄ range post</span>' : ''}<span class="pill">👁 ${s.posted}</span></div>` +
+      (s.cancelled ? `<div class="cancelled-banner">🚫 Event cancelled</div>` : '') +
+      `</div></div>` +
+      (s.cancelled ? '' : `<span class="chev">▾</span><button class="more" title="Options" aria-label="Event options">⋮</button>`);
     el.onclick = () => el.classList.toggle('open');
+    if (s.cancelled) { box.appendChild(el); return; }
     el.querySelector('.more').onclick = e => {
       e.stopPropagation();
       openSlotMenu(selDay, ix);
@@ -595,8 +603,8 @@ function drawSlots(){
   drawRecs();
 }
 
-/* ---------- SCHD: 3-dot event menu (rename / edit / delete) ---------- */
-let menuTarget = null; /* {day, ix} for the slot the ⋮ menu / delete confirm is acting on */
+/* ---------- SCHD: 3-dot event menu (rename / edit / cancel) ---------- */
+let menuTarget = null; /* {day, ix} for the slot the ⋮ menu / cancel confirm is acting on */
 
 function openSlotMenu(day, ix){
   const s = (daySlots[day] || [])[ix];
@@ -606,7 +614,7 @@ function openSlotMenu(day, ix){
   openSheet('slotmenu');
 }
 
-function renameSlotFromMenu(){
+async function renameSlotFromMenu(){
   if (!menuTarget) return;
   const { day, ix } = menuTarget;
   const s = (daySlots[day] || [])[ix];
@@ -615,14 +623,14 @@ function renameSlotFromMenu(){
   const next = prompt('Rename this event:', s.note || '');
   if (next === null) return;
   const note = next.trim() || s.note;
-  s.note = note;
+  if (!s.id) { s.note = note; drawSlots(); toast('Renamed ✓'); return; }
+  const { data, error } = await sb.rpc('upsert_plan', {
+    p_me: me.username, p_id: s.id, p_day: day, p_act: s.act, p_color: s.c,
+    p_time: s.t, p_note: note, p_audience: s.posted, p_range: s.range, p_tags: s.tags || [],
+  });
+  if (error || !data) { toast('Could not rename — check your connection and try again'); return; }
+  s.note = data.note; s.edited = !!data.edited;
   drawSlots();
-  if (s.id) {
-    sb.rpc('upsert_plan', {
-      p_me: me.username, p_id: s.id, p_day: day, p_act: s.act, p_color: s.c,
-      p_time: s.t, p_note: note, p_audience: s.posted, p_range: s.range, p_tags: s.tags || [],
-    });
-  }
   toast('Renamed ✓');
 }
 
@@ -633,30 +641,36 @@ function editSlotFromMenu(){
   openComposerForEdit(day, ix);
 }
 
-function deleteSlotFromMenu(){
+function cancelSlotFromMenu(){
   if (!menuTarget) return;
   closeSheets();
-  openSheet('confirmdelete');
+  openSheet('confirmcancel');
 }
 
-function confirmDeleteYes(){
-  if (!menuTarget) { closeSheets(); return; }
-  const { day, ix } = menuTarget;
-  const list = daySlots[day] || [];
-  const removed = list.splice(ix, 1)[0];
+async function confirmCancelYes(){
+  const target = menuTarget;
   menuTarget = null;
   closeSheets();
-  drawWeek(); drawSlots();
-  if (!removed) return;
-  if (!removed.id) { toast('Removed'); return; }
-  if (removed.posted === 'Only me') {
-    sb.rpc('delete_plan', { p_me: me.username, p_id: removed.id });
+  if (!target) return;
+  const { day, ix } = target;
+  const s = (daySlots[day] || [])[ix];
+  if (!s) return;
+  if (!s.id) {
+    /* never made it to the server — safe to just drop it locally */
+    (daySlots[day] || []).splice(ix, 1);
+    drawWeek(); drawSlots();
     toast('Removed');
-  } else {
-    /* soft delete: friends who saw this post see "Event cancelled" and can't join it */
-    sb.rpc('cancel_plan', { p_me: me.username, p_id: removed.id });
-    toast('Cancelled — friends who saw this will see it marked cancelled');
+    return;
   }
+  const { data, error } = await sb.rpc('cancel_plan', { p_me: me.username, p_id: s.id });
+  if (error || !data || !data.ok) {
+    toast('Could not cancel — check your connection and try again');
+    return;
+  }
+  /* soft cancel: stays visible marked "Cancelled" for you and for friends who saw it, and can no longer be joined */
+  s.cancelled = true;
+  drawWeek(); drawSlots();
+  toast('Cancelled — friends who saw this will see it marked cancelled');
 }
 
 /* ---------- SCHD: activity chips (favorites + sorted by usage) ---------- */
@@ -1044,7 +1058,7 @@ async function loadFriendsFeed(){
       `<div><div class="who">${p.owner_display}</div><div class="when">${when}</div></div>` +
       `<span class="actbadge">${p.act}</span></div>` +
       `<div class="kind">${p.cancelled ? 'CANCELLED' : (p.is_range ? 'PLAN' : 'ASK')}</div>` +
-      `<div class="subact">${p.note}${p.is_range ? ' · <span class="mono">' + p.time_label + '</span>' : ''}</div>` +
+      `<div class="subact">${p.note}${p.edited && !p.cancelled ? ' (edited)' : ''}${p.is_range ? ' · <span class="mono">' + p.time_label + '</span>' : ''}</div>` +
       actions +
       `</div>`;
   }).join('');

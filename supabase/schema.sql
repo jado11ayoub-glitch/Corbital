@@ -277,15 +277,17 @@ create table if not exists plan_joins (
 alter table plan_joins enable row level security;
 revoke all on plan_joins from anon, authenticated;
 
+alter table plans add column if not exists edited boolean not null default false;
+
 drop function if exists list_plans(text, text);
 create function list_plans(p_me text, p_owner text)
 returns table (
   id uuid, owner text, day_index int, act text, color text, time_label text, note text,
-  audience text, is_range boolean, tags text[], done boolean, cancelled boolean, created_at timestamptz,
-  join_count bigint, joined_by_me boolean
+  audience text, is_range boolean, tags text[], done boolean, cancelled boolean, edited boolean,
+  created_at timestamptz, join_count bigint, joined_by_me boolean
 ) language sql security definer as $$
   select p.id, p.owner, p.day_index, p.act, p.color, p.time_label, p.note,
-    p.audience, p.is_range, p.tags, p.done, p.cancelled, p.created_at,
+    p.audience, p.is_range, p.tags, p.done, p.cancelled, p.edited, p.created_at,
     (select count(*) from plan_joins j where j.plan_id = p.id) as join_count,
     exists(select 1 from plan_joins j where j.plan_id = p.id and j.requester = p_me) as joined_by_me
   from plans p
@@ -301,14 +303,15 @@ grant execute on function list_plans(text,text) to anon;
 
 -- every plan any of your friends have posted to you, newest first —
 -- what actually powers the FRIENDS feed
-create or replace function list_friends_feed(p_me text)
+drop function if exists list_friends_feed(text);
+create function list_friends_feed(p_me text)
 returns table (
   id uuid, owner text, owner_display text, owner_avatar text, day_index int, act text, color text,
-  time_label text, note text, audience text, is_range boolean, tags text[], cancelled boolean,
+  time_label text, note text, audience text, is_range boolean, tags text[], cancelled boolean, edited boolean,
   created_at timestamptz, join_count bigint, joined_by_me boolean
 ) language sql security definer as $$
   select p.id, p.owner, a.display_name, a.avatar, p.day_index, p.act, p.color, p.time_label, p.note,
-    p.audience, p.is_range, p.tags, p.cancelled, p.created_at,
+    p.audience, p.is_range, p.tags, p.cancelled, p.edited, p.created_at,
     (select count(*) from plan_joins j where j.plan_id = p.id) as join_count,
     exists(select 1 from plan_joins j where j.plan_id = p.id and j.requester = p_me) as joined_by_me
   from plans p
@@ -337,17 +340,24 @@ begin
 end $$;
 grant execute on function request_join_plan(text,uuid) to anon;
 
--- cancel a posted plan (soft delete) — it disappears from your own
--- calendar, but friends who already saw it see "Event cancelled" and
--- can no longer request to join.
+-- cancel a posted plan (soft delete) — it stays visible, marked
+-- "Cancelled", on your own calendar and on friends' feeds/schedules who
+-- already saw it, and can no longer be requested to join. Reports ok:false
+-- if nothing was actually updated (wrong id / not the owner) instead of
+-- silently claiming success.
 create or replace function cancel_plan(p_me text, p_id uuid)
 returns json language plpgsql security definer as $$
+declare v_rows int;
 begin
   update plans set cancelled = true where id = p_id and owner = p_me;
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then return json_build_object('ok', false, 'error', 'not_found'); end if;
   return json_build_object('ok', true);
 end $$;
 grant execute on function cancel_plan(text,uuid) to anon;
 
+-- editing an existing plan (p_id not null) flags it "edited" so viewers
+-- see "(edited)" next to it; brand-new plans (p_id null) start unedited.
 create or replace function upsert_plan(
   p_me text, p_id uuid, p_day int, p_act text, p_color text, p_time text,
   p_note text, p_audience text, p_range boolean, p_tags text[])
@@ -360,7 +370,7 @@ begin
       returning * into r;
   else
     update plans set day_index=p_day, act=p_act, color=p_color, time_label=p_time, note=p_note,
-      audience=p_audience, is_range=p_range, tags=p_tags
+      audience=p_audience, is_range=p_range, tags=p_tags, edited=true
       where id = p_id and owner = p_me
       returning * into r;
   end if;
