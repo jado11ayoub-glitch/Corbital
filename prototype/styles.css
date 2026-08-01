@@ -197,6 +197,28 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .sheet.show{display:block}
 .sheet h3{margin:0 0 4px;font-size:17px}
 .sheet .handle{width:40px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
+
+/* fullscreen sheet variant — used by Messages / Chat instead of the bottom-sheet look */
+.sheet.fullscreen{
+  top:0; left:0; right:0; bottom:0; transform:none; width:100%; height:100%;
+  max-width:none; max-height:none; border-radius:0; overflow:hidden;
+  display:none; flex-direction:column; padding:calc(env(safe-area-inset-top,0px) + 14px) 14px calc(env(safe-area-inset-bottom,0px) + 14px);
+}
+.sheet.fullscreen.show{display:flex}
+.sheethead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;margin-bottom:2px}
+.sheethead h3{margin:0;flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px}
+.scroll1{flex:1;overflow-y:auto;min-height:0;margin:10px 0}
+
+/* chat bubbles — sent on the right, received on the left */
+.msgrow{display:flex;margin-bottom:8px}
+.msgrow.mine{justify-content:flex-end}
+.msgrow.theirs{justify-content:flex-start}
+.bubble{max-width:78%;padding:8px 12px;border-radius:16px;background:var(--surface2);font-size:14px;line-height:1.4}
+.msgrow.mine .bubble{background:var(--brand);color:var(--on-brand);border-bottom-right-radius:4px}
+.msgrow.theirs .bubble{border-bottom-left-radius:4px}
+.bubble .who{font-size:11px;font-weight:700;opacity:.75;margin-bottom:2px}
+.bubble .status{font-size:11px;margin-top:6px;opacity:.85}
+.bubble .reqbtns{display:flex;gap:8px;margin-top:8px}
 .privrow{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
 .privrow .g{flex:1}
 .privrow .t{font-weight:700;font-size:14px}

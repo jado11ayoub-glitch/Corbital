@@ -17,7 +17,12 @@ function toast(m){
   t._h = setTimeout(() => t.classList.remove('show'), 2600);
 }
 function openSheet(n){ $('#scrim').classList.add('show'); $('#sheet-' + n).classList.add('show'); }
-function closeSheets(){ $('#scrim').classList.remove('show'); $$('.sheet').forEach(s => s.classList.remove('show')); }
+function closeSheets(){
+  $('#scrim').classList.remove('show');
+  $$('.sheet').forEach(s => s.classList.remove('show'));
+  stopChatPoll();
+  stopMsgListPoll();
+}
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheets(); });
 
 /* escape untrusted text for safe use inside a single-quoted onclick="...('...')" attribute */
@@ -1100,6 +1105,7 @@ function openMessages(){
   openSheet('messages');
   drawMessagesList();
   markMessagesRead();
+  startMsgListPoll();
 }
 $('#msg-seg').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -1109,16 +1115,18 @@ $('#msg-seg').addEventListener('click', e => {
   drawMessagesList();
 });
 
-async function drawMessagesList(){
+async function drawMessagesList(silent){
   const box = $('#msg-list');
-  box.innerHTML = '<div class="sub">Loading…</div>';
+  if (!silent) box.innerHTML = '<div class="sub">Loading…</div>';
   const who = me.username;
-  if (msgMode === 'dm') {
+  const mode = msgMode;
+  let html;
+  if (mode === 'dm') {
     const { data, error } = await sb.rpc('list_dm_threads', { p_me: who });
-    if (!me || me.username !== who) return;
-    if (error) { box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
-    if (!data.length) { box.innerHTML = '<div class="sub">No messages yet — message a friend from the FRIENDS tab.</div>'; return; }
-    box.innerHTML = data.map(t => {
+    if (!me || me.username !== who || mode !== msgMode) return;
+    if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
+    if (!data.length) { html = '<div class="sub">No messages yet — message a friend from the FRIENDS tab.</div>'; }
+    else html = data.map(t => {
       let preview;
       if (t.last_kind === 'join_request') {
         preview = t.last_request_status === 'pending'
@@ -1133,17 +1141,25 @@ async function drawMessagesList(){
     }).join('');
   } else {
     const { data, error } = await sb.rpc('list_my_event_chats', { p_me: who });
-    if (!me || me.username !== who) return;
-    if (error) { box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
-    if (!data.length) { box.innerHTML = '<div class="sub">No event chats yet — post or join an event to start one.</div>'; return; }
-    box.innerHTML = data.map(c => {
+    if (!me || me.username !== who || mode !== msgMode) return;
+    if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
+    if (!data.length) { html = '<div class="sub">No event chats yet — post or join an event to start one.</div>'; }
+    else html = data.map(c => {
       const preview = c.last_body ? escHTML(c.last_body) : 'No messages yet';
       return `<div class="frow" style="cursor:pointer" onclick="openEventChat('${c.plan_id}','${escJS(c.title)}')">` +
         `<span class="fav2">${c.owner === who ? '👑' : '💬'}</span>` +
         `<div class="g"><div class="dn">${c.title}${c.cancelled ? ' (cancelled)' : ''}</div><div class="un">${preview}</div></div></div>`;
     }).join('');
   }
+  if (box.innerHTML !== html) box.innerHTML = html;
 }
+
+let msgListPollTimer = null;
+function startMsgListPoll(){
+  stopMsgListPoll();
+  msgListPollTimer = setInterval(() => { if ($('#sheet-messages').classList.contains('show')) drawMessagesList(true); }, 4000);
+}
+function stopMsgListPoll(){ if (msgListPollTimer) clearInterval(msgListPollTimer); msgListPollTimer = null; }
 
 async function openDMChat(other, otherDisplay){
   activeChat = { type:'dm', other, otherDisplay };
@@ -1152,6 +1168,7 @@ async function openDMChat(other, otherDisplay){
   openSheet('chat');
   await drawChatMessages();
   markMessagesRead();
+  startChatPoll();
 }
 
 async function openEventChat(planId, title){
@@ -1161,50 +1178,74 @@ async function openEventChat(planId, title){
   openSheet('chat');
   await drawChatMessages();
   markMessagesRead();
+  startChatPoll();
 }
 
-async function drawChatMessages(){
+function closeChatSheet(){
+  stopChatPoll();
+  $('#sheet-chat').classList.remove('show');
+  activeChat = null;
+  if ($('#sheet-messages').classList.contains('show')) drawMessagesList();
+  else $('#scrim').classList.remove('show');
+}
+
+async function drawChatMessages(silent){
   if (!activeChat) return;
   const chat = activeChat;
   const box = $('#chat-messages');
-  box.innerHTML = '<div class="sub">Loading…</div>';
+  if (!silent) box.innerHTML = '<div class="sub">Loading…</div>';
+  const wasAtBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  let html;
   if (chat.type === 'dm') {
     const { data, error } = await sb.rpc('list_dm_messages', { p_me: me.username, p_other: chat.other });
     if (activeChat !== chat) return;
-    if (error) { box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
-    box.innerHTML = data.map(renderDMBubble).join('') || '<div class="sub">Say hi 👋</div>';
+    if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+    html = data.map(renderDMBubble).join('') || '<div class="sub">Say hi 👋</div>';
   } else {
     const { data, error } = await sb.rpc('list_event_messages', { p_me: me.username, p_plan_id: chat.planId });
     if (activeChat !== chat) return;
-    if (error) { box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
-    box.innerHTML = data.map(renderEventBubble).join('') || '<div class="sub">No messages yet — say hi 👋</div>';
+    if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+    html = data.map(renderEventBubble).join('') || '<div class="sub">No messages yet — say hi 👋</div>';
   }
-  box.scrollTop = box.scrollHeight;
+  if (box.innerHTML === html) return;
+  box.innerHTML = html;
+  if (!silent || wasAtBottom) box.scrollTop = box.scrollHeight;
 }
+
+let chatPollTimer = null;
+function startChatPoll(){
+  stopChatPoll();
+  chatPollTimer = setInterval(() => {
+    if (!activeChat || !$('#sheet-chat').classList.contains('show')) return;
+    drawChatMessages(true);
+    markMessagesRead();
+  }, 3000);
+}
+function stopChatPoll(){ if (chatPollTimer) clearInterval(chatPollTimer); chatPollTimer = null; }
 
 function renderDMBubble(m){
   const mine = m.sender === me.username;
   if (m.kind === 'join_request') {
     let statusLine;
     if (m.request_status === 'pending' && !mine) {
-      statusLine = `<div class="row" style="gap:8px;margin-top:8px">` +
+      statusLine = `<div class="reqbtns">` +
         `<button class="btn small primary" onclick="respondJoinRequest('${m.id}', true)">Yes</button>` +
         `<button class="btn small danger" onclick="respondJoinRequest('${m.id}', false)">No</button></div>`;
     } else if (m.request_status === 'pending' && mine) {
-      statusLine = `<div class="sub" style="margin-top:4px">Waiting for approval…</div>`;
+      statusLine = `<div class="status">Waiting for approval…</div>`;
     } else {
-      statusLine = `<div class="sub" style="margin-top:4px">${m.request_status === 'accepted' ? '✅ Accepted' : '❌ Declined'}</div>`;
+      statusLine = `<div class="status">${m.request_status === 'accepted' ? '✅ Accepted' : '❌ Declined'}</div>`;
     }
-    return `<div class="card" style="margin-bottom:8px">🙋 ${escHTML(m.body)}${statusLine}</div>`;
+    return `<div class="msgrow ${mine ? 'mine' : 'theirs'}"><div class="bubble">🙋 ${escHTML(m.body)}${statusLine}</div></div>`;
   }
-  return `<div class="card" style="margin-bottom:8px${mine ? ';border-color:var(--brand)' : ''}">` +
-    `<div class="sub" style="margin-bottom:2px">${mine ? 'You' : ''}</div>${escHTML(m.body)}</div>`;
+  return `<div class="msgrow ${mine ? 'mine' : 'theirs'}"><div class="bubble">${escHTML(m.body)}</div></div>`;
 }
 
 function renderEventBubble(m){
   const mine = m.sender === me.username;
-  return `<div class="card" style="margin-bottom:8px${mine ? ';border-color:var(--brand)' : ''}">` +
-    `<div class="sub" style="margin-bottom:2px">${m.sender_avatar} ${mine ? 'You' : escHTML(m.sender_display)}</div>${escHTML(m.body)}</div>`;
+  return `<div class="msgrow ${mine ? 'mine' : 'theirs'}"><div class="bubble">` +
+    (mine ? '' : `<div class="who">${m.sender_avatar} ${escHTML(m.sender_display)}</div>`) +
+    `${escHTML(m.body)}</div></div>`;
 }
 
 async function sendChatMessage(){
@@ -1275,6 +1316,7 @@ async function leaveCurrentEventChat(){
   if (!confirm('Leave this event chat? Your join will be removed and you\'ll stop seeing its messages.')) return;
   const { data, error } = await sb.rpc('leave_event_chat', { p_me: me.username, p_plan_id: activeChat.planId });
   if (error || !data.ok) { toast('Could not leave — try again'); return; }
+  stopChatPoll();
   closeSheets();
   activeChat = null;
   toast('Left the event chat');

@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbitals">orbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v22</span>
+    <span class="pill">prototype v23</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -342,24 +342,27 @@
   <div id="fs-list"></div>
 </div>
 
-<div class="sheet" id="sheet-messages" role="dialog" aria-label="Messages">
-  <div class="handle"></div>
-  <h3>💬 Messages</h3>
-  <div class="seg" id="msg-seg" style="margin:10px 0">
+<div class="sheet fullscreen" id="sheet-messages" role="dialog" aria-label="Messages">
+  <div class="sheethead">
+    <button class="btn small" onclick="closeSheets()">← Back</button>
+    <h3>💬 Messages</h3>
+    <span style="width:64px"></span>
+  </div>
+  <div class="seg" id="msg-seg" style="margin:10px 0;flex:none">
     <button class="on" data-m="dm">Direct</button>
     <button data-m="events">Events</button>
   </div>
-  <div id="msg-list"></div>
+  <div id="msg-list" class="scroll1"></div>
 </div>
 
-<div class="sheet" id="sheet-chat" role="dialog" aria-label="Chat">
-  <div class="handle"></div>
-  <div class="row" style="align-items:center;justify-content:space-between;flex-wrap:nowrap">
-    <h3 id="chat-title" style="margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Chat</h3>
-    <button class="btn small" id="chat-members-btn" onclick="openChatMembers()" style="display:none;flex:none">👥</button>
+<div class="sheet fullscreen" id="sheet-chat" role="dialog" aria-label="Chat">
+  <div class="sheethead">
+    <button class="btn small" onclick="closeChatSheet()">← Back</button>
+    <h3 id="chat-title">Chat</h3>
+    <button class="btn small" id="chat-members-btn" onclick="openChatMembers()" style="display:none">👥</button>
   </div>
-  <div id="chat-messages" style="max-height:48vh;overflow-y:auto;margin:12px 0"></div>
-  <div class="row" style="gap:8px;flex-wrap:nowrap">
+  <div id="chat-messages" class="scroll1"></div>
+  <div class="row" style="gap:8px;flex-wrap:nowrap;flex:none">
     <input id="chat-input" placeholder="Message…" style="flex:1" autocomplete="off">
     <button class="btn primary small" style="flex:none" onclick="sendChatMessage()">Send</button>
   </div>
