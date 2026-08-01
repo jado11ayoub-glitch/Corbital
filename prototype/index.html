@@ -72,7 +72,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbitals">orbitals<span class="dot">.</span></div>
-    <span class="pill">prototype v16</span>
+    <span class="pill">prototype v17</span>
     <div class="spacer"></div>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openSheet('privacy')">🛡️</button>
@@ -328,6 +328,14 @@
 </div>
 
 <!-- ============ privacy sheet ============ -->
+<!-- ============ friend's schedule (read-only) ============ -->
+<div class="sheet" id="sheet-friendsched" role="dialog" aria-label="Friend's schedule">
+  <div class="handle"></div>
+  <h3 id="fs-title">🗓️ Schedule</h3>
+  <div class="sub" id="fs-sub" style="margin-bottom:10px"></div>
+  <div id="fs-list"></div>
+</div>
+
 <div class="scrim" id="scrim" onclick="closeSheets()"></div>
 <div class="sheet" id="sheet-privacy" role="dialog" aria-label="Privacy controls">
   <div class="handle"></div>

@@ -244,9 +244,11 @@ function rowToSlot(r){
            posted: r.audience, range: r.is_range, tags: r.tags || [], done: r.done };
 }
 async function loadScheduleFromServer(){
-  Object.keys(daySlots).forEach(k => delete daySlots[k]);
-  const { data, error } = await sb.rpc('list_plans', { p_me: me.username, p_owner: me.username });
+  const who = me.username;
+  const { data, error } = await sb.rpc('list_plans', { p_me: who, p_owner: who });
+  if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
   if (error) { toast('Could not load your schedule — check your connection'); return; }
+  Object.keys(daySlots).forEach(k => delete daySlots[k]);
   data.forEach(r => { (daySlots[r.day_index] = daySlots[r.day_index] || []).push(rowToSlot(r)); });
 }
 
@@ -285,8 +287,9 @@ function paintReqBadge(n){
 let reqBadgeTimer = null;
 async function pollReqBadge(){
   if (!me) return;
-  const { data, error } = await sb.rpc('list_incoming_requests', { p_me: me.username });
-  if (!error) paintReqBadge((data || []).length);
+  const who = me.username;
+  const { data, error } = await sb.rpc('list_incoming_requests', { p_me: who });
+  if (!error && me && me.username === who) paintReqBadge((data || []).length);
 }
 function startReqBadgePoll(){
   stopReqBadgePoll();
@@ -372,11 +375,13 @@ let friendsCache = [], reqInCache = [], reqOutCache = [];
 
 async function drawFriendsTab(){
   if (!me) return;
+  const who = me.username;
   const [friends, reqIn, reqOut] = await Promise.all([
-    sb.rpc('list_friends', { p_me: me.username }),
-    sb.rpc('list_incoming_requests', { p_me: me.username }),
-    sb.rpc('list_outgoing_requests', { p_me: me.username }),
+    sb.rpc('list_friends', { p_me: who }),
+    sb.rpc('list_incoming_requests', { p_me: who }),
+    sb.rpc('list_outgoing_requests', { p_me: who }),
   ]);
+  if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
   friendsCache = friends.data || [];
   reqInCache = reqIn.data || [];
   reqOutCache = reqOut.data || [];
@@ -388,14 +393,62 @@ async function drawFriendsTab(){
     `<button class="btn small" onclick="openSheet('profile')">Edit</button>`;
 
   $('#freqs').innerHTML = (reqInCache.length || reqOutCache.length)
-    ? reqInCache.map(a => frowHTML(a, `<button class="btn primary small" onclick="acceptReq('${a.username}')">Accept</button>`)).join('') +
-      reqOutCache.map(a => frowHTML(a, `<span class="un">Requested…</span>`)).join('')
+    ? reqInCache.map(a => frowHTML(a,
+        `<button class="btn primary small" onclick="acceptReq('${a.username}')">Accept</button>` +
+        `<button class="btn small" onclick="declineReq('${a.username}')">Decline</button>`)).join('') +
+      reqOutCache.map(a => frowHTML(a,
+        `<button class="btn small" onclick="cancelReq('${a.username}')">Cancel request</button>`)).join('')
     : '<div class="sub">No pending requests.</div>';
 
   $('#flist').innerHTML = friendsCache.length
-    ? friendsCache.map(a => frowHTML(a, '<span class="st">✓ Friends</span>')).join('')
+    ? friendsCache.map(a => frowHTML(a,
+        `<button class="btn small" onclick="viewFriendSchedule('${a.username}')">📅 Schedule</button>` +
+        `<button class="btn small" onclick="unfriend('${a.username}')" title="Remove friend">Unfriend</button>`)).join('')
     : '<div class="sub">No friends yet — search a username above.</div>';
   drawFSearch();
+}
+
+async function unfriend(u){
+  if (!confirm(`Remove @${u} from your friends? They'll stop seeing your shared plans.`)) return;
+  const { error } = await sb.rpc('remove_friend', { p_me: me.username, p_other: u });
+  if (error) { toast('Could not remove — check your connection'); return; }
+  await drawFriendsTab();
+  toast(`Removed @${u}`);
+}
+async function cancelReq(u){
+  const { error } = await sb.rpc('cancel_friend_request', { p_me: me.username, p_to: u });
+  if (error) { toast('Could not cancel — check your connection'); return; }
+  await drawFriendsTab();
+  toast(`Request to @${u} cancelled`);
+}
+async function declineReq(u){
+  const { error } = await sb.rpc('decline_friend_request', { p_me: me.username, p_from: u });
+  if (error) { toast('Could not decline — check your connection'); return; }
+  await drawFriendsTab();
+  toast(`Declined @${u}`);
+}
+
+/* ---------- viewing a friend's shared schedule (read-only) ---------- */
+async function viewFriendSchedule(u){
+  const friend = friendsCache.find(f => f.username === u);
+  $('#fs-title').textContent = `🗓️ ${friend ? friend.display_name : '@' + u}'s schedule`;
+  $('#fs-sub').textContent = 'Only what they\'ve shared with friends — anything posted "Only me" stays private.';
+  $('#fs-list').innerHTML = '<div class="sub">Loading…</div>';
+  openSheet('friendsched');
+  const { data, error } = await sb.rpc('list_plans', { p_me: me.username, p_owner: u });
+  if (error) { $('#fs-list').innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
+  if (!data.length) { $('#fs-list').innerHTML = '<div class="sub">Nothing shared with you yet.</div>'; return; }
+  const byDay = {};
+  data.sort((a, b) => a.day_index - b.day_index).forEach(r => (byDay[r.day_index] = byDay[r.day_index] || []).push(r));
+  $('#fs-list').innerHTML = Object.entries(byDay).map(([day, rows]) => {
+    const label = dayLabel(+day).replace('Today — ', '');
+    const items = rows.map(r =>
+      `<div class="slot" style="--c:${r.color}"><div class="stripe"></div>` +
+      `<div style="flex:1"><div class="t">${r.act}${(r.tags && r.tags.length) ? ' · ' + r.tags.join(' + ') : ''} · <span class="mono">${r.time_label}</span></div>` +
+      `<div class="body sub" style="display:block">${r.note}</div></div></div>`
+    ).join('');
+    return `<div class="eyebrow">${label}</div>${items}`;
+  }).join('');
 }
 
 async function drawFSearch(){

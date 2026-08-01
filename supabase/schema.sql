@@ -210,6 +210,33 @@ begin
 end $$;
 grant execute on function accept_friend_request(text,text) to anon;
 
+-- cancel a request you sent that hasn't been accepted yet
+create or replace function cancel_friend_request(p_me text, p_to text)
+returns json language plpgsql security definer as $$
+begin
+  delete from friend_requests where from_user = p_me and to_user = p_to;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function cancel_friend_request(text,text) to anon;
+
+-- decline a request someone sent you
+create or replace function decline_friend_request(p_me text, p_from text)
+returns json language plpgsql security definer as $$
+begin
+  delete from friend_requests where from_user = p_from and to_user = p_me;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function decline_friend_request(text,text) to anon;
+
+-- remove an existing friend ("unadd")
+create or replace function remove_friend(p_me text, p_other text)
+returns json language plpgsql security definer as $$
+begin
+  delete from friendships where (user_a = p_me and user_b = p_other) or (user_a = p_other and user_b = p_me);
+  return json_build_object('ok', true);
+end $$;
+grant execute on function remove_friend(text,text) to anon;
+
 create or replace function list_friends(p_me text)
 returns setof public_accounts language sql security definer as $$
   select a.username, a.display_name, a.avatar from accounts a
