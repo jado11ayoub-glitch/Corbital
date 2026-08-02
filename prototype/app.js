@@ -43,6 +43,7 @@ function showPanel(t){
   $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
   if (t === 'frds' && me) loadFriendsFeed();
   if (t === 'plannit' && me) drawAudienceSelectors();
+  if (t === 'search' && me) { loadSearchData(); startSearchPoll(); } else { stopSearchPoll(); }
 }
 $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
@@ -285,6 +286,7 @@ async function enterApp(){
   await loadCircles();
   drawAudienceSelectors();
   drawPrivacyCircles();
+  loadSearchData();
   startReqBadgePoll();
   startMsgBadgePoll();
 }
@@ -301,6 +303,8 @@ function logoutUser(){
   me = null;
   stopReqBadgePoll();
   stopMsgBadgePoll();
+  stopSearchPoll();
+  searchLoaded = false;
   activeChat = null;
   closeSheets();
   $('#authgate').classList.remove('hidden');
@@ -767,6 +771,7 @@ async function renameSlotFromMenu(){
   if (error || !data) { toast('Could not rename — check your connection and try again'); return; }
   s.note = data.note; s.edited = !!data.edited;
   drawSlots();
+  loadSearchData();
   toast('Renamed ✓');
 }
 
@@ -806,6 +811,7 @@ async function confirmCancelYes(){
   /* soft cancel: stays visible marked "Cancelled" for you and for friends who saw it, and can no longer be joined */
   s.cancelled = true;
   drawWeek(); drawSlots();
+  loadSearchData();
   toast('Cancelled — friends who saw this will see it marked cancelled');
 }
 
@@ -998,6 +1004,7 @@ async function postPlan(){
   $('#c-note').value = '';
   saveStats();
   drawWeek(); drawSlots(); drawChips(); drawTotals();
+  loadSearchData();
   toast(editing
     ? 'Event updated ✓'
     : (aud === 'Only me'
@@ -1882,24 +1889,21 @@ function buildReceivedGrid(){
   t.appendChild(tr);
 }
 
-/* ---------- SEARCH ---------- */
+/* ---------- SEARCH ----------
+   Person / Group / Activity are real, live data pulled from the same
+   backend as everything else (list_plans, list_friends_feed,
+   list_my_circles) — refreshed on tab-open, pull-to-refresh, and a
+   light poll while SEARCH is the active panel, so a friend posting
+   something new shows up without a manual page reload. Location stays
+   canned demo data — there's no real location backend yet (see build
+   notes: TBD). */
+const PLACEHOLDERS = {
+  person:'Search a friend…', group:'Search a group…',
+  activity:'Try “run”, “gym”, “swim”, “study”…',
+  location:'Try “YMCA”, “Fairview”, “Don Mills”, “Bayview”…',
+};
 const searchData = {
-  person: { ph:'Search a friend…', items:[
-    { s:'var(--gym)',   t:'Maya — today', d:'Gym 6–10 PM (range, 1 joined) · free before 5', live:false },
-    { s:'var(--run)',   t:'Sam — today',  d:'Run 7 AM done ✓ · Study 8–10 PM', live:false },
-    { s:'var(--study)', t:'Dev — today',  d:'BIO120 lecture 2–4 · asking for notes', live:false },
-  ]},
-  group: { ph:'Search a group…', items:[
-    { s:'var(--gym)',   t:'Gym crew (4)',      d:'Maya posted 6–10 PM tonight · 2 of 4 free after 8', live:false },
-    { s:'var(--other)', t:'Close friends (6)', d:'Café invite Sat ~2 PM · 2 in so far', live:false },
-    { s:'var(--study)', t:'Study group (3)',   d:'Nothing planned — start a PLANNIT?', live:false },
-  ]},
-  activity: { ph:'Try “run”, “gym”, “swim”, “study”…', items:[
-    { s:'var(--run)', t:'Run · Sat 9–11 AM', d:'You — easy 5k, open invite (Close friends)', live:false },
-    { s:'var(--run)', t:'Run · Sat 8 AM',    d:'Sam — tempo 8k, Don Mills trail', live:false },
-    { s:'var(--run)', t:'Run · Sun 10 AM',   d:'Lena — recovery jog, anyone welcome', live:false },
-  ]},
-  location: { ph:'Try “YMCA”, “Fairview”, “Don Mills”, “Bayview”…', items:[
+  location: { items:[
     { s:'var(--swim)',  t:'YMCA — Maya · swim',      d:'Laps now until 3 PM', live:true },
     { s:'var(--gym)',   t:'YMCA — Dev · lift',       d:'Planned 6–8 PM', live:false },
     { s:'var(--other)', t:'Bayview — café invite',   d:'Sat ~2 PM · 2 going', live:false },
@@ -1907,28 +1911,89 @@ const searchData = {
   ]},
 };
 let curSearch = 'person';
+let searchLoaded = false;
 
 $('#searchtabs').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   curSearch = b.dataset.s;
   $$('#searchtabs button').forEach(x => x.classList.toggle('on', x === b));
-  $('#searchbox').placeholder = searchData[curSearch].ph;
+  $('#searchbox').placeholder = PLACEHOLDERS[curSearch];
   drawSearch();
 });
 $('#searchbox').addEventListener('input', drawSearch);
+
+async function loadSearchData(){
+  if (!me) return;
+  const who = me.username;
+
+  const [ownPlans, friendPlans] = await Promise.all([
+    sb.rpc('list_plans', { p_me: who, p_owner: who }),
+    sb.rpc('list_friends_feed', { p_me: who }),
+  ]);
+  if (!me || me.username !== who) return;
+  const activityRows = [];
+  (ownPlans.data || []).forEach(p => activityRows.push({
+    s: p.color, day: p.day_index,
+    t: `${p.act} · ${dayLabel(p.day_index).replace('Today — ', '')} ${p.time_label}`,
+    d: p.cancelled ? 'You — 🚫 Event cancelled' : `You — ${p.note}${p.edited ? ' (edited)' : ''}`,
+  }));
+  (friendPlans.data || []).forEach(p => activityRows.push({
+    s: p.color, day: p.day_index,
+    t: `${p.act} · ${dayLabel(p.day_index).replace('Today — ', '')} ${p.time_label}`,
+    d: p.cancelled ? `${p.owner_display} — 🚫 Event cancelled` : `${p.owner_display} — ${p.note}${p.edited ? ' (edited)' : ''}`,
+  }));
+  activityRows.sort((a, b) => a.day - b.day);
+
+  const personRows = await Promise.all(friendsCache.map(async f => {
+    const { data } = await sb.rpc('list_plans', { p_me: who, p_owner: f.username });
+    if (!me || me.username !== who) return null;
+    const today = (data || []).filter(p => p.day_index === TODAY_IX && !p.cancelled);
+    const summary = today.length
+      ? today.map(p => `${p.act} ${p.time_label}`).join(' · ')
+      : 'Nothing shared with you today';
+    return { s:'var(--other)', t:`${f.display_name} — today`, d: summary };
+  }));
+
+  await loadCircles();
+  const groupRows = circlesCache.map(c => ({
+    s:'var(--other)', t:`${c.name} (${c.members.length})`,
+    d: c.members.length ? 'Post to this circle from the composer’s "Who can see"' : 'No members yet — add some from Privacy → Circles',
+  }));
+
+  if (!me || me.username !== who) return;
+  searchData.activity = { items: activityRows };
+  searchData.person = { items: personRows.filter(Boolean) };
+  searchData.group = { items: groupRows };
+  searchLoaded = true;
+  drawSearch();
+}
+
+let searchPollTimer = null;
+function startSearchPoll(){
+  stopSearchPoll();
+  searchPollTimer = setInterval(() => { if ($('#p-search').classList.contains('on')) loadSearchData(); }, 12000);
+}
+function stopSearchPoll(){ if (searchPollTimer) clearInterval(searchPollTimer); searchPollTimer = null; }
 
 function drawSearch(){
   const q = $('#searchbox').value.toLowerCase();
   const box = $('#searchresults');
   box.innerHTML = '';
-  const items = searchData[curSearch].items.filter(i => !q || (i.t + i.d).toLowerCase().includes(q));
+  const source = searchData[curSearch];
+  if (curSearch !== 'location' && !searchLoaded) {
+    box.innerHTML = '<div class="sub">Loading…</div>';
+    return;
+  }
+  const items = (source ? source.items : []).filter(i => !q || (i.t + i.d).toLowerCase().includes(q));
   if (curSearch === 'activity' && items.length)
     box.insertAdjacentHTML('beforeend', '<div class="sub" style="margin-bottom:8px">Chronological — soonest first</div>');
   if (curSearch === 'location')
     box.insertAdjacentHTML('beforeend', '<div class="sub" style="margin-bottom:8px">Places in your network · region search (Fairview, Don Mills, Bayview…) <span class="tag-todo">TBD</span></div>');
   if (!items.length) {
-    box.insertAdjacentHTML('beforeend', '<div class="card sub">No matches in your network. (Results are canned for the prototype.)</div>');
+    box.insertAdjacentHTML('beforeend', curSearch === 'location'
+      ? '<div class="card sub">No matches in your network. (Results are canned for the prototype.)</div>'
+      : '<div class="card sub">Nothing to show yet.</div>');
     return;
   }
   items.forEach(i => {
@@ -1936,7 +2001,7 @@ function drawSearch(){
     el.className = 'result';
     el.style.setProperty('--c', i.s);
     el.innerHTML =
-      `<div class="stripe"></div><div><div class="t">${i.t}</div><div class="sub">${i.d}</div></div>` +
+      `<div class="stripe"></div><div><div class="t">${escHTML(i.t)}</div><div class="sub">${escHTML(i.d)}</div></div>` +
       (i.live ? '<span class="livepill live">LIVE</span>' : '');
     box.appendChild(el);
   });
@@ -1988,7 +2053,7 @@ function drawSearch(){
 
   async function doRefresh(){
     if (!me) return;
-    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge(), loadFriendsFeed(), pollMsgBadge()]);
+    await Promise.all([loadScheduleFromServer(), drawFriendsTab(), pollReqBadge(), loadFriendsFeed(), pollMsgBadge(), loadSearchData()]);
     drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
     toast('Refreshed ✓');
   }
