@@ -486,6 +486,12 @@ alter table dm_messages enable row level security;
 revoke all on dm_messages from anon, authenticated;
 create index if not exists dm_messages_thread_idx on dm_messages (least(sender,recipient), greatest(sender,recipient), created_at);
 
+-- a PLANNIT invite is just another special dm_messages row, same pattern
+-- as a join_request — rendered with Yes/No until answered.
+alter table dm_messages drop constraint if exists dm_messages_kind_check;
+alter table dm_messages add constraint dm_messages_kind_check check (kind in ('text','join_request','plannit_invite'));
+alter table dm_messages add column if not exists plannit_event_id uuid;
+
 -- ---------- messaging: per-event group chats ----------
 -- membership is derived, not stored: the plan's owner, plus anyone with
 -- an accepted (and not left) plan_joins row.
@@ -724,6 +730,235 @@ begin
 end $$;
 grant execute on function leave_event_chat(text,uuid) to anon;
 
+-- ---------- PLANNIT: group plans with a shared weekly grid ----------
+-- week_start_day is a real, stable calendar day (epoch days, same scheme
+-- as plans.day_index) — the Monday of the week the grid covers.
+create table if not exists plannit_events (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null references accounts(username) on delete cascade,
+  name text not null,
+  week_start_day int not null,
+  created_at timestamptz not null default now(),
+  cancelled boolean not null default false
+);
+alter table plannit_events enable row level security;
+revoke all on plannit_events from anon, authenticated;
+alter table dm_messages drop constraint if exists dm_messages_plannit_event_id_fkey;
+alter table dm_messages add constraint dm_messages_plannit_event_id_fkey
+  foreign key (plannit_event_id) references plannit_events(id) on delete cascade;
+
+create table if not exists plannit_invites (
+  event_id uuid not null references plannit_events(id) on delete cascade,
+  invitee text not null references accounts(username) on delete cascade,
+  status text not null default 'pending' check (status in ('pending','accepted','declined')),
+  primary key (event_id, invitee)
+);
+alter table plannit_invites enable row level security;
+revoke all on plannit_invites from anon, authenticated;
+
+-- one cell per member per day/2-hour-slot; deleting a row = "no answer yet"
+create table if not exists plannit_answers (
+  event_id uuid not null references plannit_events(id) on delete cascade,
+  member text not null references accounts(username) on delete cascade,
+  day_offset int not null check (day_offset between 0 and 6),
+  slot_index int not null check (slot_index between 0 and 6),
+  answer text not null check (answer in ('yes','no','maybe','depends')),
+  primary key (event_id, member, day_offset, slot_index)
+);
+alter table plannit_answers enable row level security;
+revoke all on plannit_answers from anon, authenticated;
+
+create table if not exists plannit_messages (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references plannit_events(id) on delete cascade,
+  sender text not null references accounts(username) on delete cascade,
+  body text not null,
+  created_at timestamptz not null default now()
+);
+alter table plannit_messages enable row level security;
+revoke all on plannit_messages from anon, authenticated;
+
+-- internal helper, not exposed to anon directly
+create or replace function is_plannit_member(p_event_id uuid, p_me text)
+returns boolean language sql security definer as $$
+  select exists(select 1 from plannit_events e where e.id = p_event_id and e.owner = p_me)
+    or exists(select 1 from plannit_invites i where i.event_id = p_event_id and i.invitee = p_me and i.status = 'accepted');
+$$;
+
+-- creates the event and sends each invitee a plannit_invite message (with
+-- Yes/No) — non-friends passed in p_invitees are silently skipped rather
+-- than failing the whole thing.
+create or replace function create_plannit_event(p_me text, p_name text, p_week_start int, p_invitees text[])
+returns json language plpgsql security definer as $$
+declare v_id uuid; v_invitee text;
+begin
+  if length(trim(coalesce(p_name,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
+  insert into plannit_events(owner, name, week_start_day) values (p_me, trim(p_name), p_week_start) returning id into v_id;
+  foreach v_invitee in array coalesce(p_invitees, '{}') loop
+    if v_invitee = p_me then continue; end if;
+    if not exists (select 1 from friendships where (user_a=p_me and user_b=v_invitee) or (user_a=v_invitee and user_b=p_me)) then
+      continue;
+    end if;
+    insert into plannit_invites(event_id, invitee, status) values (v_id, v_invitee, 'pending')
+      on conflict (event_id, invitee) do nothing;
+    insert into dm_messages(sender, recipient, body, kind, plannit_event_id, request_status)
+      values (p_me, v_invitee, 'Want to help plan "' || trim(p_name) || '"?', 'plannit_invite', v_id, 'pending');
+  end loop;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function create_plannit_event(text,text,int,text[]) to anon;
+
+-- invite more people to an already-created event (owner only)
+create or replace function invite_to_plannit_event(p_me text, p_event_id uuid, p_invitees text[])
+returns json language plpgsql security definer as $$
+declare v_name text; v_invitee text;
+begin
+  select name into v_name from plannit_events where id = p_event_id and owner = p_me;
+  if v_name is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  foreach v_invitee in array coalesce(p_invitees, '{}') loop
+    if v_invitee = p_me then continue; end if;
+    if not exists (select 1 from friendships where (user_a=p_me and user_b=v_invitee) or (user_a=v_invitee and user_b=p_me)) then
+      continue;
+    end if;
+    if exists (select 1 from plannit_invites where event_id = p_event_id and invitee = v_invitee) then continue; end if;
+    insert into plannit_invites(event_id, invitee, status) values (p_event_id, v_invitee, 'pending');
+    insert into dm_messages(sender, recipient, body, kind, plannit_event_id, request_status)
+      values (p_me, v_invitee, 'Want to help plan "' || v_name || '"?', 'plannit_invite', p_event_id, 'pending');
+  end loop;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function invite_to_plannit_event(text,uuid,text[]) to anon;
+
+create or replace function respond_plannit_invite(p_me text, p_message_id uuid, p_accept boolean)
+returns json language plpgsql security definer as $$
+declare m dm_messages;
+begin
+  select * into m from dm_messages where id = p_message_id;
+  if m is null or m.recipient <> p_me or m.kind <> 'plannit_invite' then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if m.request_status <> 'pending' then
+    return json_build_object('ok', false, 'error', 'already_answered');
+  end if;
+  update dm_messages set request_status = (case when p_accept then 'accepted' else 'declined' end) where id = p_message_id;
+  update plannit_invites set status = (case when p_accept then 'accepted' else 'declined' end)
+    where event_id = m.plannit_event_id and invitee = p_me;
+  if p_accept then
+    insert into dm_messages(sender, recipient, body, kind) values (p_me, m.sender, 'Joined the planning ✓', 'text');
+  else
+    insert into dm_messages(sender, recipient, body, kind) values (p_me, m.sender, 'Can''t help plan this one', 'text');
+  end if;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function respond_plannit_invite(text,uuid,boolean) to anon;
+
+-- the PLANNIT feed: events you own, or ones you've accepted an invite to
+-- (a pending invite lives only in Messages until answered, same as a
+-- join request).
+create or replace function list_my_plannit_events(p_me text)
+returns table (id uuid, name text, owner text, owner_display text, week_start_day int, cancelled boolean,
+  member_count bigint, created_at timestamptz, last_body text, last_at timestamptz)
+language sql security definer as $$
+  with mine as (
+    select e.id from plannit_events e where e.owner = p_me
+    union
+    select i.event_id from plannit_invites i where i.invitee = p_me and i.status = 'accepted'
+  )
+  select e.id, e.name, e.owner, a.display_name, e.week_start_day, e.cancelled,
+    1 + (select count(*) from plannit_invites i2 where i2.event_id = e.id and i2.status = 'accepted') as member_count,
+    e.created_at,
+    (select body from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_body,
+    (select pm.created_at from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_at
+  from plannit_events e
+  join accounts a on a.username = e.owner
+  where e.id in (select id from mine)
+  order by coalesce(
+    (select pm.created_at from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1),
+    e.created_at
+  ) desc;
+$$;
+grant execute on function list_my_plannit_events(text) to anon;
+
+create or replace function list_plannit_members(p_me text, p_event_id uuid)
+returns table (username text, display_name text, avatar text, is_owner boolean, status text)
+language plpgsql security definer as $$
+begin
+  if not is_plannit_member(p_event_id, p_me) then return; end if;
+  return query
+    select a.username, a.display_name, a.avatar, true, 'accepted'::text
+    from plannit_events e join accounts a on a.username = e.owner where e.id = p_event_id
+    union
+    select a.username, a.display_name, a.avatar, false, i.status
+    from plannit_invites i join accounts a on a.username = i.invitee
+    where i.event_id = p_event_id;
+end $$;
+grant execute on function list_plannit_members(text,uuid) to anon;
+
+-- p_answer = 'none' clears the cell (deletes the row) instead of storing it
+create or replace function set_plannit_answer(p_me text, p_event_id uuid, p_day_offset int, p_slot_index int, p_answer text)
+returns json language plpgsql security definer as $$
+begin
+  if not is_plannit_member(p_event_id, p_me) then return json_build_object('ok', false, 'error', 'not_member'); end if;
+  if p_answer = 'none' then
+    delete from plannit_answers where event_id = p_event_id and member = p_me and day_offset = p_day_offset and slot_index = p_slot_index;
+  else
+    insert into plannit_answers(event_id, member, day_offset, slot_index, answer)
+      values (p_event_id, p_me, p_day_offset, p_slot_index, p_answer)
+      on conflict (event_id, member, day_offset, slot_index) do update set answer = excluded.answer;
+  end if;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function set_plannit_answer(text,uuid,int,int,text) to anon;
+
+-- every member's answers for the grid, so the client can render overlap
+-- (how many said yes per cell) — no auto "best slot" pick yet, you eyeball it.
+create or replace function list_plannit_grid(p_me text, p_event_id uuid)
+returns table (member text, member_display text, day_offset int, slot_index int, answer text)
+language plpgsql security definer as $$
+begin
+  if not is_plannit_member(p_event_id, p_me) then return; end if;
+  return query
+    select pa.member, a.display_name, pa.day_offset, pa.slot_index, pa.answer
+    from plannit_answers pa join accounts a on a.username = pa.member
+    where pa.event_id = p_event_id;
+end $$;
+grant execute on function list_plannit_grid(text,uuid) to anon;
+
+create or replace function send_plannit_message(p_me text, p_event_id uuid, p_body text)
+returns json language plpgsql security definer as $$
+begin
+  if length(trim(coalesce(p_body,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
+  if not is_plannit_member(p_event_id, p_me) then return json_build_object('ok', false, 'error', 'not_member'); end if;
+  insert into plannit_messages(event_id, sender, body) values (p_event_id, p_me, trim(p_body));
+  return json_build_object('ok', true);
+end $$;
+grant execute on function send_plannit_message(text,uuid,text) to anon;
+
+create or replace function list_plannit_messages(p_me text, p_event_id uuid)
+returns table (id uuid, sender text, sender_display text, sender_avatar text, body text, created_at timestamptz)
+language plpgsql security definer as $$
+begin
+  if not is_plannit_member(p_event_id, p_me) then return; end if;
+  return query
+    select m.id, m.sender, a.display_name, a.avatar, m.body, m.created_at
+    from plannit_messages m join accounts a on a.username = m.sender
+    where m.event_id = p_event_id
+      and m.sender not in (select blocked from blocks where blocker = p_me)
+    order by m.created_at asc;
+end $$;
+grant execute on function list_plannit_messages(text,uuid) to anon;
+
+create or replace function cancel_plannit_event(p_me text, p_event_id uuid)
+returns json language plpgsql security definer as $$
+declare v_rows int;
+begin
+  update plannit_events set cancelled = true where id = p_event_id and owner = p_me;
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function cancel_plannit_event(text,uuid) to anon;
+
 -- red-circle badge on the Messages icon: pending join requests always
 -- count (they need action); text messages count once until last_read_at
 -- is bumped by mark_messages_read.
@@ -736,7 +971,7 @@ begin
 
   select
     (select count(*) from dm_messages
-       where recipient = p_me and kind = 'join_request' and request_status = 'pending'
+       where recipient = p_me and kind in ('join_request','plannit_invite') and request_status = 'pending'
          and sender not in (select blocked from blocks where blocker = p_me))
     +
     (select count(*) from dm_messages
@@ -747,6 +982,11 @@ begin
        where em.sender <> p_me and em.created_at > v_last
          and is_event_member(em.plan_id, p_me)
          and em.sender not in (select blocked from blocks where blocker = p_me))
+    +
+    (select count(*) from plannit_messages pm
+       where pm.sender <> p_me and pm.created_at > v_last
+         and is_plannit_member(pm.event_id, p_me)
+         and pm.sender not in (select blocked from blocks where blocker = p_me))
   into v_count;
   return coalesce(v_count, 0);
 end $$;
@@ -760,7 +1000,7 @@ returns int language plpgsql security definer as $$
 declare v_count int;
 begin
   select count(*) into v_count from dm_messages
-    where recipient = p_me and kind = 'join_request' and request_status = 'pending'
+    where recipient = p_me and kind in ('join_request','plannit_invite') and request_status = 'pending'
       and sender not in (select blocked from blocks where blocker = p_me);
   return coalesce(v_count, 0);
 end $$;

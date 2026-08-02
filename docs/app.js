@@ -42,7 +42,7 @@ function showPanel(t){
   $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === litTab));
   $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
   if (t === 'frds' && me) loadFriendsFeed();
-  if (t === 'plannit' && me) drawAudienceSelectors();
+  if (t === 'plannit' && me) { closePlannitDetail(); loadPlannitFeed(); }
   if (t === 'search' && me) { loadSearchData(); startSearchPoll(); } else { stopSearchPoll(); }
 }
 $('#tabs').addEventListener('click', e => {
@@ -290,6 +290,7 @@ async function enterApp(){
   drawAudienceSelectors();
   drawPrivacyCircles();
   loadSearchData();
+  loadPlannitFeed();
   startReqBadgePoll();
   startMsgBadgePoll();
 }
@@ -498,12 +499,6 @@ function drawAudienceSelectors(){
   if (cAud) { const cur = cAud.querySelector('.on'); cAud.innerHTML = audienceButtonsHTML(cur ? cur.textContent : null); }
   const defAud = $('#def-aud');
   if (defAud) { const cur = defAud.querySelector('.on'); defAud.innerHTML = audienceButtonsHTML(cur ? cur.textContent : null); }
-  const plGroup = $('#pl-group');
-  if (plGroup) {
-    const cur = plGroup.value;
-    plGroup.innerHTML = circlesCache.map(c => `<option>Send to: ${escHTML(c.name)}</option>`).join('') + `<option>Pick people…</option>`;
-    if ([...plGroup.options].some(o => o.textContent === cur)) plGroup.value = cur;
-  }
 }
 
 function drawPrivacyCircles(){
@@ -1243,37 +1238,68 @@ function drawFeed(){
 function toggleReply(btn){ btn.closest('.card').querySelector('.replybox').classList.toggle('show'); }
 
 /* ---------- real feed: what friends have actually posted to SCHD ---------- */
+/* shared by the FRIENDS feed and SEARCH -> Activity so a plan card looks
+   and behaves identically everywhere it shows up */
+function renderFeedCard(p, opts){
+  opts = opts || {};
+  const isOwn = opts.isOwn || false;
+  const initials = (p.owner_display || p.owner).trim()[0].toUpperCase();
+  const when = dayName(p.day_index);
+  let actions;
+  if (p.cancelled) {
+    actions = `<div class="cancelled-banner">🚫 Event cancelled — no longer joinable</div>`;
+  } else if (isOwn) {
+    actions = `<div class="actions"><button class="btn small" onclick="openEventChat('${p.id}','${escJS(p.act)}')">💬 Open event chat</button></div>`;
+  } else if (p.my_join_status === 'accepted') {
+    actions = `<div class="actions"><button class="btn small primary" onclick="openEventChat('${p.id}','${escJS(p.act)}')">💬 Open event chat</button></div>`;
+  } else if (p.my_join_status === 'pending') {
+    actions = `<div class="actions"><button class="btn small" disabled>🙋 Requested — waiting for approval</button></div>`;
+  } else {
+    actions = `<div class="actions"><button class="btn small primary" onclick="requestJoinPlan('${p.id}', this)">🙋 Request to join · <span class="count">${p.join_count}</span></button></div>`;
+  }
+  return `<div class="card post" style="--c:${p.color}">` +
+    `<div class="head"><div class="avatar">${p.owner_avatar || initials}</div>` +
+    `<div><div class="who">${isOwn ? 'You' : p.owner_display}</div><div class="when">${when}</div></div>` +
+    `<span class="actbadge">${p.act}</span></div>` +
+    `<div class="kind">${p.cancelled ? 'CANCELLED' : (p.is_range ? 'PLAN' : 'ASK')}</div>` +
+    `<div class="subact">${p.note}${p.edited && !p.cancelled ? ' (edited)' : ''}${p.is_range ? ' · <span class="mono">' + p.time_label + '</span>' : ''}</div>` +
+    actions +
+    `</div>`;
+}
+
+let feedFilterMode = 'all';         /* 'all' | 'schedule' | 'plannit' | 'milestone' */
+let friendsFeedCache = [];
+
 async function loadFriendsFeed(){
   if (!me) return;
   const who = me.username;
-  const { data, error } = await sb.rpc('list_friends_feed', { p_me: who });
+  const [feedRes, plannitRes] = await Promise.all([
+    sb.rpc('list_friends_feed', { p_me: who }),
+    sb.rpc('list_my_plannit_events', { p_me: who }),
+  ]);
   if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
-  const box = $('#realfeed');
-  if (error) { box.innerHTML = ''; return; }
-  if (!data.length) { box.innerHTML = ''; return; }
-  box.innerHTML = data.map(p => {
-    const initials = (p.owner_display || p.owner).trim()[0].toUpperCase();
-    const when = dayName(p.day_index);
-    let actions;
-    if (p.cancelled) {
-      actions = `<div class="cancelled-banner">🚫 Event cancelled — no longer joinable</div>`;
-    } else if (p.my_join_status === 'accepted') {
-      actions = `<div class="actions"><button class="btn small primary" onclick="openEventChat('${p.id}','${escJS(p.act)}')">💬 Open event chat</button></div>`;
-    } else if (p.my_join_status === 'pending') {
-      actions = `<div class="actions"><button class="btn small" disabled>🙋 Requested — waiting for approval</button></div>`;
-    } else {
-      actions = `<div class="actions"><button class="btn small primary" onclick="requestJoinPlan('${p.id}', this)">🙋 Request to join · <span class="count">${p.join_count}</span></button></div>`;
-    }
-    return `<div class="card post" style="--c:${p.color}">` +
-      `<div class="head"><div class="avatar">${p.owner_avatar || initials}</div>` +
-      `<div><div class="who">${p.owner_display}</div><div class="when">${when}</div></div>` +
-      `<span class="actbadge">${p.act}</span></div>` +
-      `<div class="kind">${p.cancelled ? 'CANCELLED' : (p.is_range ? 'PLAN' : 'ASK')}</div>` +
-      `<div class="subact">${p.note}${p.edited && !p.cancelled ? ' (edited)' : ''}${p.is_range ? ' · <span class="mono">' + p.time_label + '</span>' : ''}</div>` +
-      actions +
-      `</div>`;
-  }).join('');
+  const rows = [];
+  (feedRes.data || []).forEach(p => rows.push({ kind:'schedule', day: p.day_index, html: renderFeedCard(p) }));
+  (plannitRes.data || []).forEach(pe => rows.push({ kind:'plannit', day: pe.week_start_day, html: renderPlannitCard(pe) }));
+  rows.sort((a, b) => b.day - a.day);
+  friendsFeedCache = rows;
+  drawFriendsFeed();
 }
+
+function drawFriendsFeed(){
+  const box = $('#realfeed');
+  if (feedFilterMode === 'milestone') { box.innerHTML = ''; $('#feed').style.display = ''; return; }
+  $('#feed').style.display = feedFilterMode === 'all' ? '' : 'none';
+  const items = feedFilterMode === 'all' ? friendsFeedCache : friendsFeedCache.filter(r => r.kind === feedFilterMode);
+  box.innerHTML = items.length ? items.map(r => r.html).join('') : (feedFilterMode === 'all' ? '' : '<div class="sub">Nothing to show yet.</div>');
+}
+$('#feed-filter').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  feedFilterMode = b.dataset.f;
+  $$('#feed-filter button').forEach(x => x.classList.toggle('on', x === b));
+  drawFriendsFeed();
+});
 
 async function requestJoinPlan(planId, btn){
   btn.disabled = true;
@@ -1334,7 +1360,7 @@ async function drawMessagesList(silent){
         `<span class="fav2">${t.other_avatar}</span>` +
         `<div class="g"><div class="dn">${t.other_display}</div><div class="un">${preview}</div></div></div>`;
     }).join('');
-  } else {
+  } else if (mode === 'events') {
     const { data, error } = await sb.rpc('list_my_event_chats', { p_me: who });
     if (!me || me.username !== who || mode !== msgMode) return;
     if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
@@ -1344,6 +1370,17 @@ async function drawMessagesList(silent){
       return `<div class="frow" style="cursor:pointer" onclick="openEventChat('${c.plan_id}','${escJS(c.title)}')">` +
         `<span class="fav2">${c.owner === who ? '👑' : '💬'}</span>` +
         `<div class="g"><div class="dn">${c.title}${c.cancelled ? ' (cancelled)' : ''}</div><div class="un">${preview}</div></div></div>`;
+    }).join('');
+  } else {
+    const { data, error } = await sb.rpc('list_my_plannit_events', { p_me: who });
+    if (!me || me.username !== who || mode !== msgMode) return;
+    if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load — check your connection.</div>'; return; }
+    if (!data.length) { html = '<div class="sub">No plans yet — start one from the PLANNIT tab.</div>'; }
+    else html = data.map(e => {
+      const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : 'No messages yet');
+      return `<div class="frow" style="cursor:pointer" onclick="openPlannitChat('${e.id}','${escJS(e.name)}')">` +
+        `<span class="fav2">${e.owner === who ? '👑' : '🗓️'}</span>` +
+        `<div class="g"><div class="dn">${escHTML(e.name)}</div><div class="un">${preview}</div></div></div>`;
     }).join('');
   }
   if (box.innerHTML !== html) box.innerHTML = html;
@@ -1376,6 +1413,16 @@ async function openEventChat(planId, title){
   startChatPoll();
 }
 
+async function openPlannitChat(eventId, title){
+  activeChat = { type:'plannit', eventId, title };
+  $('#chat-title').textContent = title;
+  $('#chat-members-btn').style.display = 'none';
+  openSheet('chat');
+  await drawChatMessages();
+  markMessagesRead();
+  startChatPoll();
+}
+
 function closeChatSheet(){
   stopChatPoll();
   $('#sheet-chat').classList.remove('show');
@@ -1396,6 +1443,11 @@ async function drawChatMessages(silent){
     if (activeChat !== chat) return;
     if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
     html = data.map(renderDMBubble).join('') || '<div class="sub">Say hi 👋</div>';
+  } else if (chat.type === 'plannit') {
+    const { data, error } = await sb.rpc('list_plannit_messages', { p_me: me.username, p_event_id: chat.eventId });
+    if (activeChat !== chat) return;
+    if (error) { if (!silent) box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+    html = data.map(renderEventBubble).join('') || '<div class="sub">No messages yet — say hi 👋</div>';
   } else {
     const { data, error } = await sb.rpc('list_event_messages', { p_me: me.username, p_plan_id: chat.planId });
     if (activeChat !== chat) return;
@@ -1433,6 +1485,19 @@ function renderDMBubble(m){
     }
     return `<div class="msgrow ${mine ? 'mine' : 'theirs'}"><div class="bubble">🙋 ${escHTML(m.body)}${statusLine}</div></div>`;
   }
+  if (m.kind === 'plannit_invite') {
+    let statusLine;
+    if (m.request_status === 'pending' && !mine) {
+      statusLine = `<div class="reqbtns">` +
+        `<button class="btn small primary" onclick="respondPlannitInvite('${m.id}', true)">Yes</button>` +
+        `<button class="btn small danger" onclick="respondPlannitInvite('${m.id}', false)">No</button></div>`;
+    } else if (m.request_status === 'pending' && mine) {
+      statusLine = `<div class="status">Waiting for response…</div>`;
+    } else {
+      statusLine = `<div class="status">${m.request_status === 'accepted' ? '✅ Joined' : '❌ Declined'}</div>`;
+    }
+    return `<div class="msgrow ${mine ? 'mine' : 'theirs'}"><div class="bubble">🗓️ ${escHTML(m.body)}${statusLine}</div></div>`;
+  }
   return `<div class="msgrow ${mine ? 'mine' : 'theirs'}"><div class="bubble">${escHTML(m.body)}</div></div>`;
 }
 
@@ -1451,6 +1516,8 @@ async function sendChatMessage(){
   input.value = '';
   const res = chat.type === 'dm'
     ? await sb.rpc('send_dm', { p_me: me.username, p_to: chat.other, p_body: body })
+    : chat.type === 'plannit'
+    ? await sb.rpc('send_plannit_message', { p_me: me.username, p_event_id: chat.eventId, p_body: body })
     : await sb.rpc('send_event_message', { p_me: me.username, p_plan_id: chat.planId, p_body: body });
   if (activeChat !== chat) return;
   if (res.error || !res.data || !res.data.ok) {
@@ -1471,6 +1538,16 @@ async function respondJoinRequest(messageId, accept){
   drawMessagesList();
   pollMsgBadge();
   loadFriendsFeed();
+}
+
+async function respondPlannitInvite(messageId, accept){
+  const { data, error } = await sb.rpc('respond_plannit_invite', { p_me: me.username, p_message_id: messageId, p_accept: accept });
+  if (error || !data.ok) { toast('Could not respond — try again'); return; }
+  toast(accept ? 'Joined the plan ✓' : 'Declined');
+  await drawChatMessages();
+  drawMessagesList();
+  pollMsgBadge();
+  loadPlannitFeed();
 }
 
 async function openChatMembers(){
@@ -1882,64 +1959,223 @@ const swimPts  = [{x:1,y:9},{x:6,y:8.5},{x:14,y:8}];
 function drawBench(){ lineChart($('#benchchart'), benchPts, ' reps', 'var(--gym)', false); }
 function drawSwim(){ lineChart($('#swimchart'), swimPts, ' min', 'var(--swim)', true); }
 
-/* ---------- PLANNIT: availability grids ---------- */
-const STATES = ['s0','s1','s2','s3','s4'];
-const SYMS = ['', '✓', '✕', '?', '◷'];
+/* ---------- PLANNIT: group plans with a shared weekly availability grid ----------
+   Feed-first: #pl-feed lists your plans (owned or accepted), a + FAB
+   creates a new one (name + invite friends — each gets a Yes/No message,
+   same pattern as an SCHD join request). Opening a plan shows one
+   real calendar week's grid; everyone's answers overlay so you can see
+   the overlap yourself — no auto "best slot" picker yet, on purpose,
+   same as the earlier "overlap engine" build note. */
+const PLANNIT_SLOTS = [8,10,12,14,16,18,20]; /* 2-hour blocks, 8am–8pm start times */
+const ANSWER_CYCLE = ['none','yes','no','maybe','depends'];
+const ANSWER_CLASS = { none:'s0', yes:'s1', no:'s2', maybe:'s3', depends:'s4' };
+const ANSWER_SYM = { none:'', yes:'✓', no:'✕', maybe:'?', depends:'◷' };
 
-function cellBtn(start = 0){
-  const b = document.createElement('button');
-  b.className = STATES[start];
-  b.textContent = SYMS[start];
-  b.onclick = () => {
-    const i = (STATES.indexOf(b.className) + 1) % STATES.length;
-    b.className = STATES[i];
-    b.textContent = SYMS[i];
-  };
-  return b;
-}
+let plannitFeedCache = [];
+let activePlannitEvent = null; /* {id, name, owner, week_start_day, cancelled} while viewing detail */
+let plannitGridCache = [];     /* rows from list_plannit_grid for the open event */
+let plannitCreateInvitees = new Set();
 
-function buildGrid(quiet){
-  const fmt = $('#pl-format').value;
-  const name = $('#pl-name').value.trim() || 'Untitled invite';
-  $('#pl-title').textContent = `${name} — ${$('#pl-format').selectedOptions[0].textContent.toLowerCase()}`;
-  const t = $('#availgrid');
-  t.innerHTML = '<tr><th></th>' + DOW.map(d => `<th>${d}</th>`).join('') + '</tr>';
-  if (fmt === 'hourly') {
-    for (let hr = 8; hr <= 21; hr += 2) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<th class="rowlab mono">${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}</th>`;
-      for (let d2 = 0; d2 < 7; d2++) { const td = document.createElement('td'); td.appendChild(cellBtn()); tr.appendChild(td); }
-      t.appendChild(tr);
-    }
-  } else {
-    const weeks = +fmt[1];
-    for (let w = 0; w < weeks; w++) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<th class="rowlab">Wk ${w + 1}</th>`;
-      for (let d2 = 0; d2 < 7; d2++) { const td = document.createElement('td'); td.appendChild(cellBtn()); tr.appendChild(td); }
-      t.appendChild(tr);
-    }
+async function loadPlannitFeed(){
+  if (!me) return;
+  const who = me.username;
+  const { data, error } = await sb.rpc('list_my_plannit_events', { p_me: who });
+  if (!me || me.username !== who) return;
+  const box = $('#pl-feed');
+  if (error) { box.innerHTML = '<div class="card sub">Could not load — check your connection.</div>'; return; }
+  plannitFeedCache = data || [];
+  if (!plannitFeedCache.length) {
+    box.innerHTML = '<div class="card sub">No plans yet — tap ＋ to start one with friends.</div>';
+    return;
   }
-  if (quiet !== true) toast('Grid ready — fill yours, then hit Send');
+  box.innerHTML = plannitFeedCache.map(e => {
+    const weekLabel = dayLabel(e.week_start_day).replace('Today — ', '');
+    const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : `Week of ${weekLabel} · ${e.member_count} planning`);
+    return `<div class="card post" style="cursor:pointer" onclick="openPlannitDetailById('${e.id}')">` +
+      `<div class="head"><div class="avatar">${e.owner === me.username ? '👑' : '🗓️'}</div>` +
+      `<div><div class="who">${escHTML(e.name)}</div><div class="when">${e.owner === me.username ? 'You' : e.owner_display} · week of ${weekLabel}</div></div></div>` +
+      `<div class="subact">${preview}</div>` +
+      `</div>`;
+  }).join('');
 }
 
-function buildReceivedGrid(){
-  const t = $('#recvgrid');
-  const cols = ['SAT 8–10','SAT 10–12','SAT 12–2','SAT 2–4','SAT 4–6'];
-  t.innerHTML = '<tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr>';
-  const yes = [1, 3, 2, 1, 0];
-  const tr = document.createElement('tr');
-  yes.forEach(y => {
-    const td = document.createElement('td');
-    const b = document.createElement('button');
-    b.className = y >= 3 ? 's1' : y >= 1 ? 's3' : 's0';
-    b.textContent = y ? y + '✓' : '';
-    b.title = `${y} of 3 said yes so far`;
-    b.onclick = () => toast(`${y} said yes here — the full multi-person row view is scoped for LATER`);
-    td.appendChild(b);
-    tr.appendChild(td);
+/* ---- create ---- */
+function nextMondays(n){
+  const mondayToday = mondayIxOf(TODAY_IX);
+  return Array.from({ length: n }, (_, i) => mondayToday + i * 7);
+}
+function openCreatePlannit(){
+  if (!me) return;
+  $('#pln-name').value = '';
+  plannitCreateInvitees = new Set();
+  const weekSel = $('#pln-week');
+  weekSel.innerHTML = nextMondays(8).map((ix, i) =>
+    `<option value="${ix}">${i === 0 ? 'This week' : i === 1 ? 'Next week' : 'Week of'} — ${dayDate(ix).toLocaleDateString('en-US', { month:'short', day:'numeric' })}</option>`
+  ).join('');
+  $('#pln-people').innerHTML = friendsCache.length
+    ? friendsCache.map(f =>
+        `<label class="frow" style="cursor:pointer"><span class="fav2">${f.avatar}</span>` +
+        `<div class="g"><div class="dn">${escHTML(f.display_name)}</div><div class="un">@${f.username}</div></div>` +
+        `<input type="checkbox" style="width:18px;height:18px" onchange="togglePlannitInvitee('${f.username}', this.checked)"></label>`
+      ).join('')
+    : '<div class="sub">Add some friends first — search from FRIENDS.</div>';
+  openSheet('newplannit');
+}
+function togglePlannitInvitee(u, checked){
+  if (checked) plannitCreateInvitees.add(u); else plannitCreateInvitees.delete(u);
+}
+async function submitCreatePlannit(){
+  const name = $('#pln-name').value.trim();
+  if (!name) { toast('Name the plan first'); return; }
+  const week = +$('#pln-week').value;
+  const { data, error } = await sb.rpc('create_plannit_event', {
+    p_me: me.username, p_name: name, p_week_start: week, p_invitees: [...plannitCreateInvitees],
   });
-  t.appendChild(tr);
+  if (error || !data.ok) { toast('Could not create — try again'); return; }
+  closeSheets();
+  await loadPlannitFeed();
+  toast(plannitCreateInvitees.size ? `Created — invited ${plannitCreateInvitees.size} ✉️` : 'Created ✓');
+  openPlannitDetailById(data.id);
+}
+
+/* ---- detail (grid) ---- */
+async function openPlannitDetailById(id){
+  const ev = plannitFeedCache.find(e => e.id === id);
+  activePlannitEvent = ev
+    ? { id: ev.id, name: ev.name, owner: ev.owner, week_start_day: ev.week_start_day, cancelled: ev.cancelled }
+    : { id, name: 'Plan', owner: null, week_start_day: mondayIxOf(TODAY_IX), cancelled: false };
+  $('#pl-feed-view').style.display = 'none';
+  $('#pl-detail-view').style.display = 'block';
+  $('#pl-fab').style.display = 'none';
+  $('#pl-detail-title').textContent = activePlannitEvent.name;
+  $('#pl-cancelled-note').style.display = activePlannitEvent.cancelled ? '' : 'none';
+  $('#pl-chat-btn').style.display = activePlannitEvent.cancelled ? 'none' : '';
+  await drawPlannitGrid();
+}
+function closePlannitDetail(){
+  activePlannitEvent = null;
+  $('#pl-feed-view').style.display = '';
+  $('#pl-detail-view').style.display = 'none';
+  $('#pl-fab').style.display = '';
+}
+
+async function drawPlannitGrid(){
+  if (!activePlannitEvent) return;
+  const ev = activePlannitEvent;
+  const { data, error } = await sb.rpc('list_plannit_grid', { p_me: me.username, p_event_id: ev.id });
+  if (!activePlannitEvent || activePlannitEvent.id !== ev.id) return;
+  plannitGridCache = error ? [] : (data || []);
+
+  const t = $('#availgrid');
+  const dayHeads = Array.from({ length: 7 }, (_, d) => {
+    const dd = dayDate(ev.week_start_day + d);
+    return `${DOW[d]}<br><span class="mono" style="font-weight:400">${dd.getDate()}</span>`;
+  });
+  t.innerHTML = '<tr><th></th>' + dayHeads.map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+  PLANNIT_SLOTS.forEach((hr, slotIx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<th class="rowlab mono">${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}</th>`;
+    for (let d = 0; d < 7; d++) {
+      const td = document.createElement('td');
+      const cellAnswers = plannitGridCache.filter(r => r.day_offset === d && r.slot_index === slotIx);
+      const mine = cellAnswers.find(r => r.member === me.username);
+      const yesCount = cellAnswers.filter(r => r.answer === 'yes').length;
+      const b = document.createElement('button');
+      const shown = mine ? mine.answer : 'none';
+      b.className = ANSWER_CLASS[shown];
+      b.textContent = yesCount > 1 ? `${yesCount}${ANSWER_SYM.yes}` : ANSWER_SYM[shown];
+      b.title = cellAnswers.length
+        ? cellAnswers.map(r => `${r.member_display}: ${r.answer}`).join(', ')
+        : 'No answers yet';
+      if (!ev.cancelled) {
+        b.onclick = () => cyclePlannitAnswer(d, slotIx, shown);
+      } else {
+        b.disabled = true;
+      }
+      td.appendChild(b);
+      tr.appendChild(td);
+    }
+    t.appendChild(tr);
+  });
+}
+
+async function cyclePlannitAnswer(dayOffset, slotIndex, current){
+  const next = ANSWER_CYCLE[(ANSWER_CYCLE.indexOf(current) + 1) % ANSWER_CYCLE.length];
+  const ev = activePlannitEvent;
+  if (!ev) return;
+  const { data, error } = await sb.rpc('set_plannit_answer', {
+    p_me: me.username, p_event_id: ev.id, p_day_offset: dayOffset, p_slot_index: slotIndex, p_answer: next,
+  });
+  if (error || !data.ok) { toast('Could not save — check your connection'); return; }
+  if (activePlannitEvent && activePlannitEvent.id === ev.id) drawPlannitGrid();
+}
+
+/* ---- members ---- */
+async function openPlannitMembers(){
+  if (!activePlannitEvent) return;
+  const ev = activePlannitEvent;
+  openSheet('plannitmembers');
+  const box = $('#plm-list');
+  box.innerHTML = '<div class="sub">Loading…</div>';
+  const { data, error } = await sb.rpc('list_plannit_members', { p_me: me.username, p_event_id: ev.id });
+  if (!activePlannitEvent || activePlannitEvent.id !== ev.id) return;
+  if (error) { box.innerHTML = '<div class="sub">Could not load.</div>'; return; }
+  const isOwner = ev.owner === me.username;
+  $('#plm-invite-btn').style.display = isOwner && !ev.cancelled ? '' : 'none';
+  box.innerHTML = (data || []).map(m => {
+    const statusTag = m.is_owner ? '👑 Owner' : m.status === 'accepted' ? '✓ In' : m.status === 'pending' ? '… Pending' : '✕ Declined';
+    return `<div class="frow"><span class="fav2">${m.avatar}</span>` +
+      `<div class="g"><div class="dn">${escHTML(m.display_name)}</div><div class="un">@${m.username}</div></div>` +
+      `<span class="pill">${statusTag}</span></div>`;
+  }).join('');
+}
+function openPlannitInviteMore(){
+  if (!activePlannitEvent) return;
+  plannitCreateInvitees = new Set();
+  $('#pln-invite-more-list').innerHTML = friendsCache.length
+    ? friendsCache.map(f =>
+        `<label class="frow" style="cursor:pointer"><span class="fav2">${f.avatar}</span>` +
+        `<div class="g"><div class="dn">${escHTML(f.display_name)}</div><div class="un">@${f.username}</div></div>` +
+        `<input type="checkbox" style="width:18px;height:18px" onchange="togglePlannitInvitee('${f.username}', this.checked)"></label>`
+      ).join('')
+    : '<div class="sub">Add some friends first — search from FRIENDS.</div>';
+  openSheet('plannitinvitemore');
+}
+async function submitPlannitInviteMore(){
+  if (!activePlannitEvent) return;
+  const { data, error } = await sb.rpc('invite_to_plannit_event', {
+    p_me: me.username, p_event_id: activePlannitEvent.id, p_invitees: [...plannitCreateInvitees],
+  });
+  if (error || !data.ok) { toast('Could not invite — try again'); return; }
+  closeSheets();
+  toast('Invited ✉️');
+  openPlannitMembers();
+}
+
+function openPlannitChatFromDetail(){
+  if (!activePlannitEvent) return;
+  openPlannitChat(activePlannitEvent.id, activePlannitEvent.name);
+}
+
+function renderPlannitCard(pe){
+  const isOwn = pe.owner === me.username;
+  const weekLabel = dayLabel(pe.week_start_day).replace('Today — ', '');
+  const preview = pe.cancelled ? '🚫 Cancelled' : (isOwn
+    ? `You — planning with ${pe.member_count} ${pe.member_count === 1 ? 'person' : 'people'}`
+    : `${pe.owner_display} invited you to plan "${escHTML(pe.name)}"`);
+  return `<div class="card post" style="cursor:pointer" onclick="openPlannitFromSearch('${pe.id}')">` +
+    `<div class="head"><div class="avatar">${isOwn ? '👑' : '🗓️'}</div>` +
+    `<div><div class="who">${escHTML(pe.name)}</div><div class="when">week of ${weekLabel}</div></div>` +
+    `<span class="actbadge">PLANNIT</span></div>` +
+    `<div class="kind">${pe.cancelled ? 'CANCELLED' : 'PLANNIT'}</div>` +
+    `<div class="subact">${preview}</div>` +
+    `</div>`;
+}
+async function openPlannitFromSearch(id){
+  showPanel('plannit');
+  await loadPlannitFeed();
+  openPlannitDetailById(id);
 }
 
 /* ---------- SEARCH ----------
@@ -1965,6 +2201,7 @@ const searchData = {
 };
 let curSearch = 'person';
 let searchLoaded = false;
+let searchFilterMode = 'all';       /* 'all' | 'schedule' | 'plannit' | 'milestone' — Activity tab only */
 
 $('#searchtabs').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -1975,6 +2212,13 @@ $('#searchtabs').addEventListener('click', e => {
   drawSearch();
 });
 $('#searchbox').addEventListener('input', drawSearch);
+$('#search-filter').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  searchFilterMode = b.dataset.f;
+  $$('#search-filter button').forEach(x => x.classList.toggle('on', x === b));
+  drawSearch();
+});
 
 async function loadSearchData(){
   if (!me) return;
@@ -1987,15 +2231,29 @@ async function loadSearchData(){
   if (!me || me.username !== who) return;
   const activityRows = [];
   (ownPlans.data || []).forEach(p => activityRows.push({
-    s: p.color, day: p.day_index,
+    kind:'schedule', isOwn: true,
+    raw: { ...p, owner: me.username, owner_display: me.displayName, owner_avatar: me.av },
+    day: p.day_index,
     t: `${p.act} · ${dayLabel(p.day_index).replace('Today — ', '')} ${p.time_label}`,
     d: p.cancelled ? 'You — 🚫 Event cancelled' : `You — ${p.note}${p.edited ? ' (edited)' : ''}`,
   }));
   (friendPlans.data || []).forEach(p => activityRows.push({
-    s: p.color, day: p.day_index,
+    kind:'schedule', isOwn: false, raw: p,
+    day: p.day_index,
     t: `${p.act} · ${dayLabel(p.day_index).replace('Today — ', '')} ${p.time_label}`,
     d: p.cancelled ? `${p.owner_display} — 🚫 Event cancelled` : `${p.owner_display} — ${p.note}${p.edited ? ' (edited)' : ''}`,
   }));
+
+  const { data: plannitRows } = await sb.rpc('list_my_plannit_events', { p_me: who });
+  if (!me || me.username !== who) return;
+  (plannitRows || []).forEach(pe => activityRows.push({
+    kind:'plannit', isOwn: pe.owner === who,
+    raw: pe,
+    day: pe.week_start_day,
+    t: `${pe.name} · week of ${dayLabel(pe.week_start_day).replace('Today — ', '')}`,
+    d: pe.owner === who ? `You — planning with ${pe.member_count} ${pe.member_count === 1 ? 'person' : 'people'}` : `${pe.owner_display} invited you to plan "${pe.name}"`,
+  }));
+
   activityRows.sort((a, b) => a.day - b.day);
 
   const personRows = await Promise.all(friendsCache.map(async f => {
@@ -2033,14 +2291,30 @@ function drawSearch(){
   const q = $('#searchbox').value.toLowerCase();
   const box = $('#searchresults');
   box.innerHTML = '';
+  $('#search-filter').style.display = curSearch === 'activity' ? '' : 'none';
   const source = searchData[curSearch];
   if (curSearch !== 'location' && !searchLoaded) {
     box.innerHTML = '<div class="sub">Loading…</div>';
     return;
   }
-  const items = (source ? source.items : []).filter(i => !q || (i.t + i.d).toLowerCase().includes(q));
-  if (curSearch === 'activity' && items.length)
+
+  if (curSearch === 'activity') {
+    if (searchFilterMode === 'milestone') {
+      box.insertAdjacentHTML('beforeend', '<div class="card sub">Milestones aren\'t shareable yet — nothing to search here.</div>');
+      return;
+    }
+    let rows = source ? source.items : [];
+    if (searchFilterMode !== 'all') rows = rows.filter(r => r.kind === searchFilterMode);
+    rows = rows.filter(r => !q || (r.t + r.d).toLowerCase().includes(q));
+    if (!rows.length) { box.insertAdjacentHTML('beforeend', '<div class="card sub">Nothing to show yet.</div>'); return; }
     box.insertAdjacentHTML('beforeend', '<div class="sub" style="margin-bottom:8px">Chronological — soonest first</div>');
+    rows.forEach(r => {
+      box.insertAdjacentHTML('beforeend', r.kind === 'plannit' ? renderPlannitCard(r.raw) : renderFeedCard(r.raw, { isOwn: r.isOwn }));
+    });
+    return;
+  }
+
+  const items = (source ? source.items : []).filter(i => !q || (i.t + i.d).toLowerCase().includes(q));
   if (curSearch === 'location')
     box.insertAdjacentHTML('beforeend', '<div class="sub" style="margin-bottom:8px">Places in your network · region search (Fairview, Don Mills, Bayview…) <span class="tag-todo">TBD</span></div>');
   if (!items.length) {
@@ -2122,7 +2396,5 @@ drawTotals();
 drawLogger();
 drawBench();
 drawSwim();
-buildGrid(true);
-buildReceivedGrid();
 drawSearch();
 enterApp();

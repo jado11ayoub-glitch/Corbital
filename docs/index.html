@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbits">orbits<span class="dot">.</span></div>
-    <span class="pill">prototype v29</span>
+    <span class="pill">prototype v30</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -173,6 +173,12 @@
     <input id="af-name" placeholder="Friend's name or @handle" style="flex:1;min-width:150px">
     <button class="btn primary small" onclick="sendFriendReq()">Send request</button>
   </div>
+  <div class="seg" id="feed-filter" style="margin-bottom:10px">
+    <button class="on" data-f="all">All</button>
+    <button data-f="schedule">Schedule</button>
+    <button data-f="plannit">Plannit</button>
+    <button data-f="milestone">Milestone</button>
+  </div>
   <div id="realfeed"></div>
   <div id="feed"></div>
 </section>
@@ -250,46 +256,33 @@
 </section>
 
 <!-- ================= PLANNIT ================= -->
-<section class="panel" id="p-plannit">
-  <div class="eyebrow">Create an invite</div>
-  <div class="card">
-    <input id="pl-name" placeholder="Invite name — “Canoe trip planning”" style="width:100%;margin-bottom:8px">
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <select id="pl-format">
-        <option value="hourly">Hourly · one week</option>
-        <option value="w1">Calendar · 1 week</option>
-        <option value="w2" selected>Calendar · 2 weeks</option>
-        <option value="w3">Calendar · 3 weeks</option>
-        <option value="w4">Calendar · 4 weeks</option>
-      </select>
-      <select id="pl-group">
-        <option>Send to: Gym crew (4)</option><option>Close friends (6)</option><option>Study group (3)</option><option>Pick people…</option>
-      </select>
-      <button class="btn primary" onclick="buildGrid()">Build grid</button>
-    </div>
+<section class="panel" id="p-plannit" style="position:relative">
+  <div id="pl-feed-view">
+    <div class="eyebrow">Your plans</div>
+    <div id="pl-feed"></div>
   </div>
 
-  <div class="card">
-    <h2 id="pl-title">Canoe trip planning — 2 weeks</h2>
-    <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
-    <div class="legend">
-      <span><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes for sure</span>
-      <span><i style="background:var(--no-soft);color:var(--no)">✕</i> Definitely not</span>
-      <span><i style="background:var(--maybe-soft);color:var(--maybe)">?</i> Maybe</span>
-      <span><i style="background:var(--depends-soft);color:var(--depends)">◷</i> Depends on time</span>
+  <div id="pl-detail-view" style="display:none">
+    <div class="weekctl">
+      <button class="btn small" onclick="closePlannitDetail()">← Back</button>
+      <span class="sub" id="pl-detail-title" style="flex:1;text-align:center;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <button class="btn small" onclick="openPlannitMembers()">👥</button>
     </div>
-    <div class="actions">
-      <button class="btn primary" onclick="toast('Invite sent — everyone can now fill their own copy of this grid ✉️')">Send invite</button>
-      <button class="btn small" onclick="toast('Overlap view (auto-finding the best common slots) is scoped for a later session 🔭')">View overlap <span class="tag-todo">LATER</span></button>
+    <div class="card" id="pl-cancelled-note" style="display:none;color:var(--no);font-weight:700">🚫 This plan was cancelled by its owner.</div>
+    <div class="card">
+      <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
+      <div class="legend">
+        <span><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes</span>
+        <span><i style="background:var(--no-soft);color:var(--no)">✕</i> No</span>
+        <span><i style="background:var(--maybe-soft);color:var(--maybe)">?</i> Maybe</span>
+        <span><i style="background:var(--depends-soft);color:var(--depends)">◷</i> Depends</span>
+      </div>
+      <div class="sub" style="margin-top:8px">Tap a cell to cycle your own answer — everyone's answers overlay here so you can eyeball the overlap.</div>
     </div>
+    <button class="btn primary" id="pl-chat-btn" style="width:100%;justify-content:center" onclick="openPlannitChatFromDetail()">💬 Discuss in chat</button>
   </div>
 
-  <div class="eyebrow">Received — “Sat gym sesh?” from Maya</div>
-  <div class="card">
-    <div class="sub" style="margin-bottom:8px">3 of 5 filled · Maya, Dev, Sam done — you and Lena left. Cells show how many said <b>yes</b> so far.</div>
-    <div class="grid-wrap"><table class="avail" id="recvgrid"></table></div>
-    <div class="sub" style="margin-top:8px">Best overlap so far: <b>Sat 10–12</b> (3 yes) — full overlap engine <span class="tag-todo">LATER</span></div>
-  </div>
+  <button class="fab" id="pl-fab" onclick="openCreatePlannit()" title="New plan">＋</button>
 </section>
 
 <!-- ================= SEARCH ================= -->
@@ -301,6 +294,12 @@
     <button data-s="location">Location</button>
   </div>
   <input id="searchbox" placeholder="Search a friend…" style="width:100%;margin-bottom:12px">
+  <div class="seg" id="search-filter" style="margin-bottom:10px;display:none">
+    <button class="on" data-f="all">All</button>
+    <button data-f="schedule">Schedule</button>
+    <button data-f="plannit">Plannit</button>
+    <button data-f="milestone">Milestone</button>
+  </div>
   <div id="searchresults"></div>
 </section>
 </main>
@@ -345,6 +344,7 @@
   <div class="seg" id="msg-seg" style="margin:10px 0;flex:none">
     <button class="on" data-m="dm">Direct</button>
     <button data-m="events">Events</button>
+    <button data-m="plannit">Plannit</button>
   </div>
   <div id="msg-list" class="scroll1"></div>
 </div>
@@ -367,6 +367,32 @@
   <h3>👥 Members</h3>
   <div id="chatmembers-list" style="margin-top:10px"></div>
   <button class="btn danger" id="leave-chat-btn" style="width:100%;justify-content:center;margin-top:14px" onclick="leaveCurrentEventChat()">🚪 Leave this event chat</button>
+</div>
+
+<div class="sheet" id="sheet-newplannit" role="dialog" aria-label="New plan">
+  <div class="handle"></div>
+  <h3>🗓️ New plan</h3>
+  <div class="profrow"><label for="pln-name">Plan name</label>
+    <input id="pln-name" placeholder="e.g. Ski trip" style="width:100%"></div>
+  <div class="profrow"><label for="pln-week">Week</label>
+    <select id="pln-week" style="width:100%"></select></div>
+  <div class="profrow"><label>Invite friends</label>
+    <div id="pln-people" style="margin-top:6px"></div></div>
+  <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitCreatePlannit()">Create plan</button>
+</div>
+
+<div class="sheet" id="sheet-plannitmembers" role="dialog" aria-label="Plan members">
+  <div class="handle"></div>
+  <h3>👥 Members</h3>
+  <div id="plm-list" style="margin-top:10px"></div>
+  <button class="btn primary" id="plm-invite-btn" style="width:100%;justify-content:center;margin-top:14px;display:none" onclick="openPlannitInviteMore()">➕ Invite more people</button>
+</div>
+
+<div class="sheet" id="sheet-plannitinvitemore" role="dialog" aria-label="Invite more people">
+  <div class="handle"></div>
+  <h3>➕ Invite more people</h3>
+  <div id="pln-invite-more-list" style="margin-top:6px"></div>
+  <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitPlannitInviteMore()">Send invites</button>
 </div>
 
 <div class="sheet" id="sheet-slotmenu" role="dialog" aria-label="Event options">
