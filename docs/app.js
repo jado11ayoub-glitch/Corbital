@@ -2044,6 +2044,19 @@ function nextMondays(n){
   const mondayToday = mondayIxOf(TODAY_IX);
   return Array.from({ length: n }, (_, i) => mondayToday + i * 7);
 }
+let plannitCreateMode = 'plan'; /* 'plan' | 'vote' — do they already know what they're doing? */
+function setPlannitCreateMode(m){
+  plannitCreateMode = m;
+  $$('#pln-mode button').forEach(x => x.classList.toggle('on', x.dataset.mode === m));
+  const isVote = m === 'vote';
+  $('#pln-name-label').textContent = isVote ? 'Give it a title' : 'What\'s the plan?';
+  $('#pln-name').placeholder = isVote ? 'e.g. Weekend hangout' : 'e.g. Ski trip';
+  $('#pln-vote-hint').style.display = isVote ? '' : 'none';
+}
+$('#pln-mode').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) setPlannitCreateMode(b.dataset.mode);
+});
 function refreshPlannitRangePreview(){
   const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
   $('#pln-range-preview').textContent = plannitRangeLabel(startDay, plannitCreateRange);
@@ -2052,9 +2065,7 @@ function setPlannitCreateRange(r){
   plannitCreateRange = r;
   $$('#pln-range button').forEach(x => x.classList.toggle('on', x.dataset.r === r));
   $('#pln-week-row').style.display = (r === 'week' || r === 'twoweek') ? '' : 'none';
-  $('#pln-tbd-row').style.display = r === 'poll' ? 'none' : 'flex';
-  if (r !== 'poll') refreshPlannitRangePreview();
-  else $('#pln-range-preview').textContent = 'No dates — just a vote on what to do.';
+  refreshPlannitRangePreview();
 }
 $('#pln-range').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -2064,7 +2075,6 @@ $('#pln-week').addEventListener('change', refreshPlannitRangePreview);
 function openCreatePlannit(){
   if (!me) return;
   $('#pln-name').value = '';
-  $('#pln-tbd').checked = false;
   plannitCreateInvitees = new Set();
   const weekSel = $('#pln-week');
   weekSel.innerHTML = nextMondays(8).map((ix, i) =>
@@ -2077,6 +2087,7 @@ function openCreatePlannit(){
         `<input type="checkbox" style="width:18px;height:18px" onchange="togglePlannitInvitee('${f.username}', this.checked)"></label>`
       ).join('')
     : '<div class="sub">Add some friends first — search from FRIENDS.</div>';
+  setPlannitCreateMode('plan');
   setPlannitCreateRange('week');
   openSheet('newplannit');
 }
@@ -2085,9 +2096,9 @@ function togglePlannitInvitee(u, checked){
 }
 async function submitCreatePlannit(){
   const name = $('#pln-name').value.trim();
-  if (!name) { toast('Name the plan first'); return; }
+  if (!name) { toast(plannitCreateMode === 'vote' ? 'Give it a title first' : 'Name the plan first'); return; }
   const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
-  const isTbd = plannitCreateRange !== 'poll' && $('#pln-tbd').checked;
+  const isTbd = plannitCreateMode === 'vote';
   const { data, error } = await sb.rpc('create_plannit_event', {
     p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: plannitCreateRange, p_is_tbd: isTbd, p_invitees: [...plannitCreateInvitees],
   });
