@@ -508,14 +508,29 @@ $$;
 -- with Yes/No buttons; nothing is confirmed until they answer.
 create or replace function request_join_plan(p_me text, p_plan_id uuid)
 returns json language plpgsql security definer as $$
-declare v_owner text; v_cancelled boolean; v_act text; v_existing text;
+declare v_owner text; v_cancelled boolean; v_act text; v_audience text; v_existing text;
 begin
-  select owner, cancelled, act into v_owner, v_cancelled, v_act from plans where id = p_plan_id;
+  select owner, cancelled, act, audience into v_owner, v_cancelled, v_act, v_audience from plans where id = p_plan_id;
   if v_owner is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
   if v_cancelled then return json_build_object('ok', false, 'error', 'cancelled'); end if;
   if v_owner = p_me then return json_build_object('ok', false, 'error', 'own_plan'); end if;
   if exists(select 1 from blocks where (blocker = p_me and blocked = v_owner) or (blocker = v_owner and blocked = p_me)) then
     return json_build_object('ok', false, 'error', 'blocked');
+  end if;
+  -- mirror list_plans/list_friends_feed's visibility rule: must be friends,
+  -- and if the audience is a real circle you must actually be in it —
+  -- otherwise you could request to join a plan you were never shown.
+  if v_audience = 'Only me' or not exists (
+    select 1 from friendships f where (f.user_a = v_owner and f.user_b = p_me) or (f.user_b = v_owner and f.user_a = p_me)
+  ) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if exists (select 1 from circles c where c.owner = v_owner and c.name = v_audience)
+     and not exists (
+       select 1 from circles c join circle_members cm on cm.circle_id = c.id
+       where c.owner = v_owner and c.name = v_audience and cm.member = p_me
+     ) then
+    return json_build_object('ok', false, 'error', 'not_found');
   end if;
 
   select status into v_existing from plan_joins where plan_id = p_plan_id and requester = p_me and has_left = false;
