@@ -327,7 +327,7 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .gate{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;align-items:flex-start;justify-content:center;padding:8vh 20px 20px;overflow-y:auto}
 .gate.hidden{display:none}
 .gatecard{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);padding:24px 22px}
-.gatecard .logo{font-size:26px;text-align:center;margin-bottom:2px}
+.gatecard .logo{font-size:26px;text-align:center;margin-bottom:2px;display:flex;width:100%;justify-content:center}
 .gatecard>.sub{text-align:center;margin-bottom:16px}
 .gate .seg{display:flex;width:100%;margin-bottom:16px}
 .gate .seg button{flex:1;padding:8px}
@@ -381,6 +381,15 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 }
 :root[data-theme="dark"] .logo-mark{ filter:none; }
 :root[data-theme="light"] .logo-mark{ filter:invert(1); }
+
+/* ============ full wordmark image — header + login screen ============ */
+.logo-full{ height:1.4em; width:auto; display:block; filter:invert(1); }
+@media (prefers-color-scheme: dark){
+  .logo-full{ filter:none; }
+}
+:root[data-theme="dark"] .logo-full{ filter:none; }
+:root[data-theme="light"] .logo-full{ filter:invert(1); }
+.gatecard .logo-full{ height:2.6em; margin:0 auto; }
 
 /* ============ v16/17: friend-request badge + pull-to-refresh ============ */
 .tab-label{position:relative; display:inline-block}
