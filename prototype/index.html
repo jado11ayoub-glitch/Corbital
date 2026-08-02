@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v31</span>
+    <span class="pill">prototype v32</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -268,7 +268,17 @@
       <button class="btn small" onclick="openPlannitMembers()">👥</button>
     </div>
     <div class="card" id="pl-cancelled-note" style="display:none;color:var(--no);font-weight:700">🚫 This plan was cancelled by its owner.</div>
-    <div class="card">
+    <div class="card" id="pl-poll-card" style="display:none">
+      <div class="eyebrow">🗳️ Vote: what's this actually gonna be?</div>
+      <div id="pl-poll-options"></div>
+      <div class="row" style="gap:8px;margin-top:10px" id="pl-poll-addrow">
+        <input id="pl-poll-newopt" placeholder="Add an option — e.g. Hiking" style="flex:1">
+        <button class="btn small" onclick="addPlannitPollOption()">Add</button>
+      </div>
+      <div class="sub" id="pl-poll-closed-note" style="display:none;margin-top:8px">🔒 Poll's closed — this plan is locked in.</div>
+      <button class="btn primary" id="pl-poll-lock-btn" style="width:100%;justify-content:center;margin-top:10px;display:none" onclick="lockPlannitPollWinner()">🔒 Lock in the leading option</button>
+    </div>
+    <div class="card" id="pl-grid-card">
       <div class="legend" id="pl-legend">
         <span class="on" data-a="yes"><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes</span>
         <span data-a="no"><i style="background:var(--no-soft);color:var(--no)">✕</i> No</span>
@@ -279,7 +289,8 @@
       <div class="sub" style="margin:8px 0">Tap a color above, then tap every slot that applies — it paints your answer straight in, no cycling through each one.</div>
       <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
     </div>
-    <button class="btn primary" id="pl-chat-btn" style="width:100%;justify-content:center" onclick="openPlannitChatFromDetail()">💬 Discuss in chat</button>
+    <button class="btn primary" id="pl-send-btn" style="width:100%;justify-content:center;display:none" onclick="sendPlannitInvites()">📤 Send to your group</button>
+    <button class="btn primary" id="pl-chat-btn" style="width:100%;justify-content:center;margin-top:10px" onclick="openPlannitChatFromDetail()">💬 Discuss in chat</button>
     <button class="btn danger" id="pl-cancel-btn" style="width:100%;justify-content:center;margin-top:10px" onclick="openSheet('confirmcancelplannit')">🚫 Cancel this plan</button>
   </div>
 
@@ -382,11 +393,16 @@
       <button data-r="twoweek">2 weeks</button>
       <button data-r="month">This month</button>
       <button data-r="year">Yearly</button>
+      <button data-r="poll">🗳️ Poll</button>
     </div>
   </div>
   <div class="profrow" id="pln-week-row"><label for="pln-week">Starting week</label>
     <select id="pln-week" style="width:100%"></select></div>
   <div class="sub" id="pln-range-preview" style="margin:-6px 0 10px"></div>
+  <label class="profrow" id="pln-tbd-row" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+    <input type="checkbox" id="pln-tbd" style="width:18px;height:18px">
+    <span>Let the group vote on what this is <span class="sub">(members can propose options and vote)</span></span>
+  </label>
   <div class="profrow"><label>Invite friends</label>
     <div id="pln-people" style="margin-top:6px"></div></div>
   <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitCreatePlannit()">Create plan</button>

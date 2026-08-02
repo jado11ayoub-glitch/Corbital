@@ -2005,6 +2005,7 @@ function plannitUnitCount(startDay, rangeType){
   return plannitGranularity(rangeType) === 'biweek' ? Math.ceil(days / 14) : days;
 }
 function plannitRangeLabel(startDay, rangeType){
+  if (rangeType === 'poll') return 'Poll';
   const fmt = d => d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
   const start = dayDate(startDay);
   if (rangeType === 'today') return `Today — ${fmt(start)}`;
@@ -2028,7 +2029,8 @@ async function loadPlannitFeed(){
   }
   box.innerHTML = plannitFeedCache.map(e => {
     const rangeLabel = plannitRangeLabel(e.start_day, e.range_type);
-    const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : `${rangeLabel} · ${e.member_count} planning`);
+    const votingTag = (e.is_tbd || e.range_type === 'poll') && !e.poll_closed ? ' · 🗳️ voting open' : '';
+    const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : `${rangeLabel} · ${e.member_count} planning${votingTag}`);
     return `<div class="card post" style="cursor:pointer" onclick="openPlannitDetailById('${e.id}')">` +
       `<div class="head"><div class="avatar">${e.owner === me.username ? '👑' : '🗓️'}</div>` +
       `<div><div class="who">${escHTML(e.name)}</div><div class="when">${e.owner === me.username ? 'You' : e.owner_display} · ${rangeLabel}</div></div></div>` +
@@ -2050,7 +2052,9 @@ function setPlannitCreateRange(r){
   plannitCreateRange = r;
   $$('#pln-range button').forEach(x => x.classList.toggle('on', x.dataset.r === r));
   $('#pln-week-row').style.display = (r === 'week' || r === 'twoweek') ? '' : 'none';
-  refreshPlannitRangePreview();
+  $('#pln-tbd-row').style.display = r === 'poll' ? 'none' : 'flex';
+  if (r !== 'poll') refreshPlannitRangePreview();
+  else $('#pln-range-preview').textContent = 'No dates — just a vote on what to do.';
 }
 $('#pln-range').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -2060,6 +2064,7 @@ $('#pln-week').addEventListener('change', refreshPlannitRangePreview);
 function openCreatePlannit(){
   if (!me) return;
   $('#pln-name').value = '';
+  $('#pln-tbd').checked = false;
   plannitCreateInvitees = new Set();
   const weekSel = $('#pln-week');
   weekSel.innerHTML = nextMondays(8).map((ix, i) =>
@@ -2082,8 +2087,9 @@ async function submitCreatePlannit(){
   const name = $('#pln-name').value.trim();
   if (!name) { toast('Name the plan first'); return; }
   const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
+  const isTbd = plannitCreateRange !== 'poll' && $('#pln-tbd').checked;
   const { data, error } = await sb.rpc('create_plannit_event', {
-    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: plannitCreateRange, p_invitees: [...plannitCreateInvitees],
+    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: plannitCreateRange, p_is_tbd: isTbd, p_invitees: [...plannitCreateInvitees],
   });
   if (error || !data.ok) { toast('Could not create — try again'); return; }
   closeSheets();
@@ -2092,12 +2098,13 @@ async function submitCreatePlannit(){
   openPlannitDetailById(data.id);
 }
 
-/* ---- detail (grid) ---- */
+/* ---- detail (grid + poll) ---- */
 async function openPlannitDetailById(id){
   const ev = plannitFeedCache.find(e => e.id === id);
   activePlannitEvent = ev
-    ? { id: ev.id, name: ev.name, owner: ev.owner, start_day: ev.start_day, range_type: ev.range_type, cancelled: ev.cancelled }
-    : { id, name: 'Plan', owner: null, start_day: TODAY_IX, range_type: 'week', cancelled: false };
+    ? { id: ev.id, name: ev.name, owner: ev.owner, start_day: ev.start_day, range_type: ev.range_type,
+        is_tbd: ev.is_tbd, poll_closed: ev.poll_closed, cancelled: ev.cancelled }
+    : { id, name: 'Plan', owner: null, start_day: TODAY_IX, range_type: 'week', is_tbd: false, poll_closed: false, cancelled: false };
   $('#pl-feed-view').style.display = 'none';
   $('#pl-detail-view').style.display = 'block';
   $('#pl-fab').style.display = 'none';
@@ -2105,9 +2112,39 @@ async function openPlannitDetailById(id){
   $('#pl-cancelled-note').style.display = activePlannitEvent.cancelled ? '' : 'none';
   $('#pl-chat-btn').style.display = activePlannitEvent.cancelled ? 'none' : '';
   $('#pl-cancel-btn').style.display = (!activePlannitEvent.cancelled && activePlannitEvent.owner === me.username) ? '' : 'none';
+
+  const showsPoll = activePlannitEvent.is_tbd || activePlannitEvent.range_type === 'poll';
+  $('#pl-poll-card').style.display = showsPoll ? '' : 'none';
+  $('#pl-grid-card').style.display = activePlannitEvent.range_type === 'poll' ? 'none' : '';
+
   setPlannitBrush('yes');
-  await drawPlannitGrid();
+  if (activePlannitEvent.range_type !== 'poll') await drawPlannitGrid();
+  if (showsPoll) await loadPlannitPoll();
+  await refreshPlannitSendButton();
 }
+
+/* ---- send: owner fills in their own availability/poll options first,
+   then explicitly sends the held-back invites to whoever they picked ---- */
+async function refreshPlannitSendButton(){
+  const ev = activePlannitEvent;
+  if (!ev) return;
+  if (!ev || ev.owner !== me.username || ev.cancelled) { $('#pl-send-btn').style.display = 'none'; return; }
+  const { data, error } = await sb.rpc('list_plannit_members', { p_me: me.username, p_event_id: ev.id });
+  if (!activePlannitEvent || activePlannitEvent.id !== ev.id) return;
+  const pending = error ? [] : (data || []).filter(m => !m.is_owner && !m.notified);
+  if (!pending.length) { $('#pl-send-btn').style.display = 'none'; return; }
+  $('#pl-send-btn').style.display = '';
+  $('#pl-send-btn').textContent = `📤 Send to ${pending.length} friend${pending.length === 1 ? '' : 's'}`;
+}
+async function sendPlannitInvites(){
+  const ev = activePlannitEvent;
+  if (!ev) return;
+  const { data, error } = await sb.rpc('send_plannit_invites', { p_me: me.username, p_event_id: ev.id });
+  if (error || !data.ok) { toast('Could not send — try again'); return; }
+  toast(`Sent to ${data.sent_count} friend${data.sent_count === 1 ? '' : 's'} ✉️`);
+  if (activePlannitEvent && activePlannitEvent.id === ev.id) refreshPlannitSendButton();
+}
+
 async function confirmCancelPlannitYes(){
   const ev = activePlannitEvent;
   closeSheets();
@@ -2118,8 +2155,9 @@ async function confirmCancelPlannitYes(){
   $('#pl-cancelled-note').style.display = '';
   $('#pl-chat-btn').style.display = 'none';
   $('#pl-cancel-btn').style.display = 'none';
+  $('#pl-send-btn').style.display = 'none';
   toast('Plan cancelled');
-  drawPlannitGrid();
+  if (ev.range_type !== 'poll') drawPlannitGrid();
   loadPlannitFeed();
 }
 function closePlannitDetail(){
@@ -2205,6 +2243,64 @@ async function paintPlannitAnswer(dayOffset, slotIndex){
   if (activePlannitEvent && activePlannitEvent.id === ev.id) drawPlannitGrid();
 }
 
+/* ---- poll: vote on what the event/plan actually is (is_tbd dated
+   events, or standalone range_type='poll' plans) ---- */
+let plannitPollCache = [];
+async function loadPlannitPoll(){
+  if (!activePlannitEvent) return;
+  const ev = activePlannitEvent;
+  const { data, error } = await sb.rpc('list_plannit_poll', { p_me: me.username, p_event_id: ev.id });
+  if (!activePlannitEvent || activePlannitEvent.id !== ev.id) return;
+  const box = $('#pl-poll-options');
+  if (error) { box.innerHTML = '<div class="sub">Could not load poll.</div>'; return; }
+  plannitPollCache = data || [];
+  const totalVotes = plannitPollCache.reduce((s, o) => s + Number(o.vote_count), 0);
+  const locked = ev.poll_closed || ev.cancelled;
+  box.innerHTML = plannitPollCache.length
+    ? plannitPollCache.map(o => {
+        const pct = totalVotes ? Math.round((o.vote_count / totalVotes) * 100) : 0;
+        return `<div class="polloption${o.my_vote ? ' mine' : ''}"${locked ? '' : ` onclick="votePlannitOption('${o.option_id}')"`}>` +
+          `<div class="pollbar" style="width:${pct}%"></div>` +
+          `<div class="pollrow"><span>${o.my_vote ? '✓ ' : ''}${escHTML(o.label)}</span><span class="mono">${o.vote_count}</span></div>` +
+          `</div>`;
+      }).join('')
+    : '<div class="sub">No options yet — add one below.</div>';
+  $('#pl-poll-addrow').style.display = locked ? 'none' : '';
+  $('#pl-poll-closed-note').style.display = ev.poll_closed ? '' : 'none';
+  $('#pl-poll-lock-btn').style.display = (!locked && ev.owner === me.username && plannitPollCache.length > 0) ? '' : 'none';
+}
+async function votePlannitOption(optionId){
+  const ev = activePlannitEvent;
+  if (!ev) return;
+  const mine = plannitPollCache.find(o => o.my_vote);
+  const newOptionId = (mine && mine.option_id === optionId) ? null : optionId;
+  const { data, error } = await sb.rpc('vote_plannit_poll', { p_me: me.username, p_event_id: ev.id, p_option_id: newOptionId });
+  if (error || !data.ok) { toast('Could not vote — try again'); return; }
+  if (activePlannitEvent && activePlannitEvent.id === ev.id) loadPlannitPoll();
+}
+async function addPlannitPollOption(){
+  const ev = activePlannitEvent;
+  if (!ev) return;
+  const label = $('#pl-poll-newopt').value.trim();
+  if (!label) { toast('Type an option first'); return; }
+  const { data, error } = await sb.rpc('add_plannit_poll_option', { p_me: me.username, p_event_id: ev.id, p_label: label });
+  if (error || !data.ok) { toast('Could not add — try again'); return; }
+  $('#pl-poll-newopt').value = '';
+  if (activePlannitEvent && activePlannitEvent.id === ev.id) loadPlannitPoll();
+}
+async function lockPlannitPollWinner(){
+  const ev = activePlannitEvent;
+  if (!ev) return;
+  const { data, error } = await sb.rpc('lock_plannit_poll_winner', { p_me: me.username, p_event_id: ev.id });
+  if (error || !data.ok) { toast('Could not lock in — try again'); return; }
+  ev.name = data.name;
+  ev.poll_closed = true;
+  $('#pl-detail-title').textContent = ev.name;
+  toast(`Locked in: ${data.name} 🔒`);
+  loadPlannitPoll();
+  loadPlannitFeed();
+}
+
 /* ---- members ---- */
 async function openPlannitMembers(){
   if (!activePlannitEvent) return;
@@ -2218,7 +2314,8 @@ async function openPlannitMembers(){
   const isOwner = ev.owner === me.username;
   $('#plm-invite-btn').style.display = isOwner && !ev.cancelled ? '' : 'none';
   box.innerHTML = (data || []).map(m => {
-    const statusTag = m.is_owner ? '👑 Owner' : m.status === 'accepted' ? '✓ In' : m.status === 'pending' ? '… Pending' : '✕ Declined';
+    const statusTag = m.is_owner ? '👑 Owner' : m.status === 'accepted' ? '✓ In'
+      : m.status === 'pending' ? (m.notified ? '… Pending' : '✉️ Not sent yet') : '✕ Declined';
     return `<div class="frow"><span class="fav2">${m.avatar}</span>` +
       `<div class="g"><div class="dn">${escHTML(m.display_name)}</div><div class="un">@${m.username}</div></div>` +
       `<span class="pill">${statusTag}</span></div>`;

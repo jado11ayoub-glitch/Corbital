@@ -186,6 +186,11 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .legend span.on{background:var(--surface2);border-color:var(--ink3);color:var(--ink)}
 .legend i{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:15px;font-weight:800;font-style:normal}
 
+.polloption{position:relative;padding:11px 13px;border-radius:10px;margin-bottom:8px;background:var(--surface2);cursor:pointer;overflow:hidden;border:2px solid transparent}
+.polloption.mine{border-color:var(--brand)}
+.polloption .pollbar{position:absolute;left:0;top:0;bottom:0;background:var(--yes-soft);z-index:0;transition:width .2s}
+.polloption .pollrow{position:relative;z-index:1;display:flex;justify-content:space-between;font-weight:700}
+
 /* ============ SEARCH ============ */
 .subtabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
 .subtabs button{padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;background:var(--surface);border:1px solid var(--line);color:var(--ink2)}

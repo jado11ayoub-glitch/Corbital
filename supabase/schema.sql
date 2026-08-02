@@ -736,7 +736,12 @@ grant execute on function leave_event_chat(text,uuid) to anon;
 -- how long that range runs and (client-side) what grid granularity to use:
 -- 'today' = just start_day (2-hour slots), 'week' = 7 days (2-hour slots),
 -- 'twoweek' = 14 days (whole-day cells), 'month' = start_day + 1 calendar
--- month (whole-day cells), 'year' = start_day + 1 year (2-week-block cells).
+-- month (whole-day cells), 'year' = start_day + 1 year (2-week-block cells),
+-- 'poll' = no date grid at all — just a vote on what the event should be
+-- (start_day is stored but unused/undisplayed for this type).
+-- is_tbd = true adds a poll (vote on what the activity is) alongside a
+-- dated event's grid; poll_closed freezes a poll once the owner locks in
+-- a winning option (which then becomes the event's name).
 create table if not exists plannit_events (
   id uuid primary key default gen_random_uuid(),
   owner text not null references accounts(username) on delete cascade,
@@ -754,21 +759,31 @@ begin
   end if;
 end $$;
 alter table plannit_events add column if not exists range_type text not null default 'week';
+alter table plannit_events add column if not exists is_tbd boolean not null default false;
+alter table plannit_events add column if not exists poll_closed boolean not null default false;
 alter table plannit_events drop constraint if exists plannit_events_range_type_check;
 alter table plannit_events add constraint plannit_events_range_type_check
-  check (range_type in ('today','week','twoweek','month','year'));
+  check (range_type in ('today','week','twoweek','month','year','poll'));
 alter table plannit_events enable row level security;
 revoke all on plannit_events from anon, authenticated;
 alter table dm_messages drop constraint if exists dm_messages_plannit_event_id_fkey;
 alter table dm_messages add constraint dm_messages_plannit_event_id_fkey
   foreign key (plannit_event_id) references plannit_events(id) on delete cascade;
 
+-- notified=false means the invitee has a row here but hasn't been sent the
+-- plannit_invite message yet — lets an owner fill in their own availability
+-- (or add poll options) before anyone else is notified the plan exists;
+-- see create_plannit_event / send_plannit_invites below.
 create table if not exists plannit_invites (
   event_id uuid not null references plannit_events(id) on delete cascade,
   invitee text not null references accounts(username) on delete cascade,
   status text not null default 'pending' check (status in ('pending','accepted','declined')),
   primary key (event_id, invitee)
 );
+alter table plannit_invites add column if not exists notified boolean;
+update plannit_invites set notified = true where notified is null; -- pre-existing rows were always sent immediately under the old flow
+alter table plannit_invites alter column notified set not null;
+alter table plannit_invites alter column notified set default false;
 alter table plannit_invites enable row level security;
 revoke all on plannit_invites from anon, authenticated;
 
@@ -800,6 +815,28 @@ create table if not exists plannit_messages (
 alter table plannit_messages enable row level security;
 revoke all on plannit_messages from anon, authenticated;
 
+-- options any member can propose (see is_tbd/range_type='poll' above)
+create table if not exists plannit_poll_options (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid not null references plannit_events(id) on delete cascade,
+  label text not null,
+  added_by text not null references accounts(username) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table plannit_poll_options enable row level security;
+revoke all on plannit_poll_options from anon, authenticated;
+
+-- one vote per member per event; changing your mind just moves the row
+create table if not exists plannit_poll_votes (
+  event_id uuid not null references plannit_events(id) on delete cascade,
+  member text not null references accounts(username) on delete cascade,
+  option_id uuid not null references plannit_poll_options(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (event_id, member)
+);
+alter table plannit_poll_votes enable row level security;
+revoke all on plannit_poll_votes from anon, authenticated;
+
 -- internal helper, not exposed to anon directly
 create or replace function is_plannit_member(p_event_id uuid, p_me text)
 returns boolean language sql security definer as $$
@@ -810,27 +847,48 @@ $$;
 -- creates the event and sends each invitee a plannit_invite message (with
 -- Yes/No) — non-friends passed in p_invitees are silently skipped rather
 -- than failing the whole thing.
-create or replace function create_plannit_event(p_me text, p_name text, p_start_day int, p_range_type text, p_invitees text[])
+-- creates the event and records who to invite, but does NOT notify them
+-- yet — this lets the owner fill in their own availability (or seed poll
+-- options) first. Call send_plannit_invites once ready to actually notify.
+create or replace function create_plannit_event(p_me text, p_name text, p_start_day int, p_range_type text, p_is_tbd boolean, p_invitees text[])
 returns json language plpgsql security definer as $$
 declare v_id uuid; v_invitee text;
 begin
   if length(trim(coalesce(p_name,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
-  if p_range_type not in ('today','week','twoweek','month','year') then return json_build_object('ok', false, 'error', 'bad_range'); end if;
-  insert into plannit_events(owner, name, start_day, range_type) values (p_me, trim(p_name), p_start_day, p_range_type) returning id into v_id;
+  if p_range_type not in ('today','week','twoweek','month','year','poll') then return json_build_object('ok', false, 'error', 'bad_range'); end if;
+  insert into plannit_events(owner, name, start_day, range_type, is_tbd) values (p_me, trim(p_name), p_start_day, p_range_type, coalesce(p_is_tbd, false)) returning id into v_id;
   foreach v_invitee in array coalesce(p_invitees, '{}') loop
     if v_invitee = p_me then continue; end if;
     if not exists (select 1 from friendships where (user_a=p_me and user_b=v_invitee) or (user_a=v_invitee and user_b=p_me)) then
       continue;
     end if;
-    insert into plannit_invites(event_id, invitee, status) values (v_id, v_invitee, 'pending')
+    insert into plannit_invites(event_id, invitee, status, notified) values (v_id, v_invitee, 'pending', false)
       on conflict (event_id, invitee) do nothing;
-    insert into dm_messages(sender, recipient, body, kind, plannit_event_id, request_status)
-      values (p_me, v_invitee, 'Want to help plan "' || trim(p_name) || '"?', 'plannit_invite', v_id, 'pending');
   end loop;
   return json_build_object('ok', true, 'id', v_id);
 end $$;
 drop function if exists create_plannit_event(text,text,int,text[]);
-grant execute on function create_plannit_event(text,text,int,text,text[]) to anon;
+drop function if exists create_plannit_event(text,text,int,text,text[]);
+grant execute on function create_plannit_event(text,text,int,text,boolean,text[]) to anon;
+
+-- owner-only: actually notifies everyone still waiting on this event's
+-- initial invite (created via create_plannit_event but not yet sent) —
+-- the "send to your group" step after the owner's filled in the grid/poll.
+create or replace function send_plannit_invites(p_me text, p_event_id uuid)
+returns json language plpgsql security definer as $$
+declare v_name text; v_invitee text; v_sent int := 0;
+begin
+  select name into v_name from plannit_events where id = p_event_id and owner = p_me;
+  if v_name is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  for v_invitee in select invitee from plannit_invites where event_id = p_event_id and notified = false loop
+    insert into dm_messages(sender, recipient, body, kind, plannit_event_id, request_status)
+      values (p_me, v_invitee, 'Want to help plan "' || v_name || '"?', 'plannit_invite', p_event_id, 'pending');
+    update plannit_invites set notified = true where event_id = p_event_id and invitee = v_invitee;
+    v_sent := v_sent + 1;
+  end loop;
+  return json_build_object('ok', true, 'sent_count', v_sent);
+end $$;
+grant execute on function send_plannit_invites(text,uuid) to anon;
 
 -- invite more people to an already-created event (owner only)
 create or replace function invite_to_plannit_event(p_me text, p_event_id uuid, p_invitees text[])
@@ -845,7 +903,7 @@ begin
       continue;
     end if;
     if exists (select 1 from plannit_invites where event_id = p_event_id and invitee = v_invitee) then continue; end if;
-    insert into plannit_invites(event_id, invitee, status) values (p_event_id, v_invitee, 'pending');
+    insert into plannit_invites(event_id, invitee, status, notified) values (p_event_id, v_invitee, 'pending', true);
     insert into dm_messages(sender, recipient, body, kind, plannit_event_id, request_status)
       values (p_me, v_invitee, 'Want to help plan "' || v_name || '"?', 'plannit_invite', p_event_id, 'pending');
   end loop;
@@ -882,6 +940,7 @@ grant execute on function respond_plannit_invite(text,uuid,boolean) to anon;
 drop function if exists list_my_plannit_events(text);
 create or replace function list_my_plannit_events(p_me text)
 returns table (id uuid, name text, owner text, owner_display text, start_day int, range_type text, cancelled boolean,
+  is_tbd boolean, poll_closed boolean,
   member_count bigint, created_at timestamptz, last_body text, last_at timestamptz)
 language sql security definer as $$
   with mine as (
@@ -889,7 +948,7 @@ language sql security definer as $$
     union
     select i.event_id from plannit_invites i where i.invitee = p_me and i.status = 'accepted'
   )
-  select e.id, e.name, e.owner, a.display_name, e.start_day, e.range_type, e.cancelled,
+  select e.id, e.name, e.owner, a.display_name, e.start_day, e.range_type, e.cancelled, e.is_tbd, e.poll_closed,
     1 + (select count(*) from plannit_invites i2 where i2.event_id = e.id and i2.status = 'accepted') as member_count,
     e.created_at,
     (select body from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_body,
@@ -904,16 +963,17 @@ language sql security definer as $$
 $$;
 grant execute on function list_my_plannit_events(text) to anon;
 
+drop function if exists list_plannit_members(text,uuid);
 create or replace function list_plannit_members(p_me text, p_event_id uuid)
-returns table (username text, display_name text, avatar text, is_owner boolean, status text)
+returns table (username text, display_name text, avatar text, is_owner boolean, status text, notified boolean)
 language plpgsql security definer as $$
 begin
   if not is_plannit_member(p_event_id, p_me) then return; end if;
   return query
-    select a.username, a.display_name, a.avatar, true, 'accepted'::text
+    select a.username, a.display_name, a.avatar, true, 'accepted'::text, true
     from plannit_events e join accounts a on a.username = e.owner where e.id = p_event_id
     union
-    select a.username, a.display_name, a.avatar, false, i.status
+    select a.username, a.display_name, a.avatar, false, i.status, i.notified
     from plannit_invites i join accounts a on a.username = i.invitee
     where i.event_id = p_event_id;
 end $$;
@@ -983,6 +1043,83 @@ begin
   return json_build_object('ok', true);
 end $$;
 grant execute on function cancel_plannit_event(text,uuid) to anon;
+
+-- ---------- PLANNIT: vote on what the event is (is_tbd events, or
+-- range_type='poll' standalone polls) — any member can propose an
+-- option, one vote per member, owner can lock in the leading option
+-- which then becomes the event's name and freezes the poll. ----------
+create or replace function add_plannit_poll_option(p_me text, p_event_id uuid, p_label text)
+returns json language plpgsql security definer as $$
+declare v_id uuid; v_closed boolean; v_cancelled boolean;
+begin
+  if length(trim(coalesce(p_label,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
+  if not is_plannit_member(p_event_id, p_me) then return json_build_object('ok', false, 'error', 'not_member'); end if;
+  select poll_closed, cancelled into v_closed, v_cancelled from plannit_events where id = p_event_id;
+  if v_closed then return json_build_object('ok', false, 'error', 'poll_closed'); end if;
+  if v_cancelled then return json_build_object('ok', false, 'error', 'cancelled'); end if;
+  insert into plannit_poll_options(event_id, label, added_by) values (p_event_id, trim(p_label), p_me) returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_plannit_poll_option(text,uuid,text) to anon;
+
+-- p_option_id = null clears the caller's own vote
+create or replace function vote_plannit_poll(p_me text, p_event_id uuid, p_option_id uuid)
+returns json language plpgsql security definer as $$
+declare v_closed boolean; v_cancelled boolean;
+begin
+  if not is_plannit_member(p_event_id, p_me) then return json_build_object('ok', false, 'error', 'not_member'); end if;
+  select poll_closed, cancelled into v_closed, v_cancelled from plannit_events where id = p_event_id;
+  if v_closed then return json_build_object('ok', false, 'error', 'poll_closed'); end if;
+  if v_cancelled then return json_build_object('ok', false, 'error', 'cancelled'); end if;
+  if p_option_id is null then
+    delete from plannit_poll_votes where event_id = p_event_id and member = p_me;
+    return json_build_object('ok', true);
+  end if;
+  if not exists (select 1 from plannit_poll_options where id = p_option_id and event_id = p_event_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  insert into plannit_poll_votes(event_id, member, option_id) values (p_event_id, p_me, p_option_id)
+    on conflict (event_id, member) do update set option_id = excluded.option_id, created_at = now();
+  return json_build_object('ok', true);
+end $$;
+grant execute on function vote_plannit_poll(text,uuid,uuid) to anon;
+
+create or replace function list_plannit_poll(p_me text, p_event_id uuid)
+returns table (option_id uuid, label text, added_by text, added_by_display text, vote_count bigint, my_vote boolean)
+language plpgsql security definer as $$
+begin
+  if not is_plannit_member(p_event_id, p_me) then return; end if;
+  return query
+    select o.id, o.label, o.added_by, a.display_name,
+      (select count(*) from plannit_poll_votes v where v.option_id = o.id) as vote_count,
+      exists(select 1 from plannit_poll_votes v where v.option_id = o.id and v.member = p_me) as my_vote
+    from plannit_poll_options o
+    join accounts a on a.username = o.added_by
+    where o.event_id = p_event_id
+    order by o.created_at asc;
+end $$;
+grant execute on function list_plannit_poll(text,uuid) to anon;
+
+-- owner-only: renames the event to the option with the most votes (ties
+-- broken by whichever option was proposed first) and freezes the poll
+create or replace function lock_plannit_poll_winner(p_me text, p_event_id uuid)
+returns json language plpgsql security definer as $$
+declare v_owner text; v_winner record;
+begin
+  select owner into v_owner from plannit_events where id = p_event_id;
+  if v_owner is null or v_owner <> p_me then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  select o.id, o.label, count(v.member) as votes into v_winner
+    from plannit_poll_options o
+    left join plannit_poll_votes v on v.option_id = o.id
+    where o.event_id = p_event_id
+    group by o.id, o.label
+    order by votes desc, o.created_at asc
+    limit 1;
+  if v_winner.id is null then return json_build_object('ok', false, 'error', 'no_options'); end if;
+  update plannit_events set name = v_winner.label, poll_closed = true where id = p_event_id;
+  return json_build_object('ok', true, 'name', v_winner.label);
+end $$;
+grant execute on function lock_plannit_poll_winner(text,uuid) to anon;
 
 -- red-circle badge on the Messages icon: pending join requests always
 -- count (they need action); text messages count once until last_read_at
