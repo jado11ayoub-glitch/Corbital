@@ -730,17 +730,33 @@ begin
 end $$;
 grant execute on function leave_event_chat(text,uuid) to anon;
 
--- ---------- PLANNIT: group plans with a shared weekly grid ----------
--- week_start_day is a real, stable calendar day (epoch days, same scheme
--- as plans.day_index) — the Monday of the week the grid covers.
+-- ---------- PLANNIT: group plans with a shared availability grid ----------
+-- start_day is a real, stable calendar day (epoch days, same scheme as
+-- plans.day_index) — the day the plan's range starts from. range_type says
+-- how long that range runs and (client-side) what grid granularity to use:
+-- 'today' = just start_day (2-hour slots), 'week' = 7 days (2-hour slots),
+-- 'twoweek' = 14 days (whole-day cells), 'month' = start_day + 1 calendar
+-- month (whole-day cells), 'year' = start_day + 1 year (2-week-block cells).
 create table if not exists plannit_events (
   id uuid primary key default gen_random_uuid(),
   owner text not null references accounts(username) on delete cascade,
   name text not null,
-  week_start_day int not null,
+  start_day int not null,
   created_at timestamptz not null default now(),
   cancelled boolean not null default false
 );
+-- migrate older installs that only ever had a single-week grid
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_name = 'plannit_events' and column_name = 'week_start_day')
+     and not exists (select 1 from information_schema.columns where table_name = 'plannit_events' and column_name = 'start_day') then
+    alter table plannit_events rename column week_start_day to start_day;
+  end if;
+end $$;
+alter table plannit_events add column if not exists range_type text not null default 'week';
+alter table plannit_events drop constraint if exists plannit_events_range_type_check;
+alter table plannit_events add constraint plannit_events_range_type_check
+  check (range_type in ('today','week','twoweek','month','year'));
 alter table plannit_events enable row level security;
 revoke all on plannit_events from anon, authenticated;
 alter table dm_messages drop constraint if exists dm_messages_plannit_event_id_fkey;
@@ -756,17 +772,23 @@ create table if not exists plannit_invites (
 alter table plannit_invites enable row level security;
 revoke all on plannit_invites from anon, authenticated;
 
--- one cell per member per day/2-hour-slot; deleting a row = "no answer yet"
+-- one cell per member per unit (a day, a 2-hour slot, or a 2-week block,
+-- depending on the event's range_type — see plannit_events above);
+-- deleting a row = "no answer yet". day_offset is the unit index (0-based
+-- from start_day); slot_index is the sub-slot within that unit (always 0
+-- except for 'today'/'week' events, which use it for the 7 two-hour slots).
 create table if not exists plannit_answers (
   event_id uuid not null references plannit_events(id) on delete cascade,
   member text not null references accounts(username) on delete cascade,
-  day_offset int not null check (day_offset between 0 and 6),
+  day_offset int not null check (day_offset between 0 and 400),
   slot_index int not null check (slot_index between 0 and 6),
   answer text not null check (answer in ('yes','no','maybe','depends')),
   primary key (event_id, member, day_offset, slot_index)
 );
 alter table plannit_answers enable row level security;
 revoke all on plannit_answers from anon, authenticated;
+alter table plannit_answers drop constraint if exists plannit_answers_day_offset_check;
+alter table plannit_answers add constraint plannit_answers_day_offset_check check (day_offset between 0 and 400);
 
 create table if not exists plannit_messages (
   id uuid primary key default gen_random_uuid(),
@@ -788,12 +810,13 @@ $$;
 -- creates the event and sends each invitee a plannit_invite message (with
 -- Yes/No) — non-friends passed in p_invitees are silently skipped rather
 -- than failing the whole thing.
-create or replace function create_plannit_event(p_me text, p_name text, p_week_start int, p_invitees text[])
+create or replace function create_plannit_event(p_me text, p_name text, p_start_day int, p_range_type text, p_invitees text[])
 returns json language plpgsql security definer as $$
 declare v_id uuid; v_invitee text;
 begin
   if length(trim(coalesce(p_name,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
-  insert into plannit_events(owner, name, week_start_day) values (p_me, trim(p_name), p_week_start) returning id into v_id;
+  if p_range_type not in ('today','week','twoweek','month','year') then return json_build_object('ok', false, 'error', 'bad_range'); end if;
+  insert into plannit_events(owner, name, start_day, range_type) values (p_me, trim(p_name), p_start_day, p_range_type) returning id into v_id;
   foreach v_invitee in array coalesce(p_invitees, '{}') loop
     if v_invitee = p_me then continue; end if;
     if not exists (select 1 from friendships where (user_a=p_me and user_b=v_invitee) or (user_a=v_invitee and user_b=p_me)) then
@@ -806,7 +829,8 @@ begin
   end loop;
   return json_build_object('ok', true, 'id', v_id);
 end $$;
-grant execute on function create_plannit_event(text,text,int,text[]) to anon;
+drop function if exists create_plannit_event(text,text,int,text[]);
+grant execute on function create_plannit_event(text,text,int,text,text[]) to anon;
 
 -- invite more people to an already-created event (owner only)
 create or replace function invite_to_plannit_event(p_me text, p_event_id uuid, p_invitees text[])
@@ -855,8 +879,9 @@ grant execute on function respond_plannit_invite(text,uuid,boolean) to anon;
 -- the PLANNIT feed: events you own, or ones you've accepted an invite to
 -- (a pending invite lives only in Messages until answered, same as a
 -- join request).
+drop function if exists list_my_plannit_events(text);
 create or replace function list_my_plannit_events(p_me text)
-returns table (id uuid, name text, owner text, owner_display text, week_start_day int, cancelled boolean,
+returns table (id uuid, name text, owner text, owner_display text, start_day int, range_type text, cancelled boolean,
   member_count bigint, created_at timestamptz, last_body text, last_at timestamptz)
 language sql security definer as $$
   with mine as (
@@ -864,7 +889,7 @@ language sql security definer as $$
     union
     select i.event_id from plannit_invites i where i.invitee = p_me and i.status = 'accepted'
   )
-  select e.id, e.name, e.owner, a.display_name, e.week_start_day, e.cancelled,
+  select e.id, e.name, e.owner, a.display_name, e.start_day, e.range_type, e.cancelled,
     1 + (select count(*) from plannit_invites i2 where i2.event_id = e.id and i2.status = 'accepted') as member_count,
     e.created_at,
     (select body from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_body,

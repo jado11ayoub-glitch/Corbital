@@ -122,6 +122,8 @@ h2{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
 .seg{display:inline-flex;background:var(--surface2);border-radius:999px;padding:3px;gap:2px}
 .seg button{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;color:var(--ink2)}
 .seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+#pln-range{display:flex;flex-wrap:wrap;width:100%}
+#pln-range button{flex:1 1 auto;text-align:center;white-space:nowrap}
 .newact{display:none;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
 .newact.show{display:flex}
 .colorpick{display:flex;gap:6px}
@@ -179,9 +181,10 @@ td .s2{background:var(--no-soft);color:var(--no)}
 td .s3{background:var(--maybe-soft);color:var(--maybe)}
 td .s4{background:var(--depends-soft);color:var(--depends)}
 th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
-.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;font-weight:600;color:var(--ink2)}
-.legend span{display:inline-flex;align-items:center;gap:5px}
-.legend i{width:14px;height:14px;border-radius:4px;display:grid;place-items:center;font-size:9px;font-weight:800;font-style:normal}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:14px;font-weight:700;color:var(--ink2)}
+.legend span{display:inline-flex;align-items:center;gap:7px;padding:5px 10px 5px 5px;border-radius:999px;cursor:pointer;border:2px solid transparent}
+.legend span.on{background:var(--surface2);border-color:var(--ink3);color:var(--ink)}
+.legend i{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:15px;font-weight:800;font-style:normal}
 
 /* ============ SEARCH ============ */
 .subtabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}

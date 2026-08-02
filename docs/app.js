@@ -1227,7 +1227,7 @@ function drawFeed(){
     if (p.kind === 'invite') {
       body +=
         `<div class="actions">` +
-        `<button class="reaction" onclick="fireOnce(this, &quot;You're in — it lands on your SCHD for Sat ☕&quot;)">☕ I'm in · <span class="count">${p.ins}</span></button>` +
+        `<button class="reaction" onclick="fireOnce(this, &quot;You're in — it lands on your Schedule for Sat ☕&quot;)">☕ I'm in · <span class="count">${p.ins}</span></button>` +
         `<button class="btn small" onclick="toast('Suggested a different time — ${p.who} will see it on their post')">⇄ Suggest time</button></div>`;
     }
     el.innerHTML = body;
@@ -1280,7 +1280,7 @@ async function loadFriendsFeed(){
   if (!me || me.username !== who) return;   /* a different account signed in while this was in flight */
   const rows = [];
   (feedRes.data || []).forEach(p => rows.push({ kind:'schedule', day: p.day_index, html: renderFeedCard(p) }));
-  (plannitRes.data || []).forEach(pe => rows.push({ kind:'plannit', day: pe.week_start_day, html: renderPlannitCard(pe) }));
+  (plannitRes.data || []).forEach(pe => rows.push({ kind:'plannit', day: pe.start_day, html: renderPlannitCard(pe) }));
   rows.sort((a, b) => b.day - a.day);
   friendsFeedCache = rows;
   drawFriendsFeed();
@@ -1967,14 +1967,52 @@ function drawSwim(){ lineChart($('#swimchart'), swimPts, ' min', 'var(--swim)', 
    the overlap yourself — no auto "best slot" picker yet, on purpose,
    same as the earlier "overlap engine" build note. */
 const PLANNIT_SLOTS = [8,10,12,14,16,18,20]; /* 2-hour blocks, 8am–8pm start times */
-const ANSWER_CYCLE = ['none','yes','no','maybe','depends'];
 const ANSWER_CLASS = { none:'s0', yes:'s1', no:'s2', maybe:'s3', depends:'s4' };
 const ANSWER_SYM = { none:'', yes:'✓', no:'✕', maybe:'?', depends:'◷' };
 
 let plannitFeedCache = [];
-let activePlannitEvent = null; /* {id, name, owner, week_start_day, cancelled} while viewing detail */
+let activePlannitEvent = null; /* {id, name, owner, start_day, range_type, cancelled} while viewing detail */
 let plannitGridCache = [];     /* rows from list_plannit_grid for the open event */
 let plannitCreateInvitees = new Set();
+let plannitCreateRange = 'week';
+
+/* ---- range math: how far a plan's range runs, and what grid granularity
+   fits it — a year of 2-hour slots would be unusable, so longer ranges
+   trade time-of-day precision for coverage: 'today'/'week' keep the 2-hour
+   slot grid, 'twoweek'/'month' drop to one cell per whole day, and 'year'
+   drops further to one cell per 2-week block. ---- */
+function plannitRangeEnd(startDay, rangeType){ /* exclusive end epoch-day */
+  if (rangeType === 'today') return startDay + 1;
+  if (rangeType === 'week') return startDay + 7;
+  if (rangeType === 'twoweek') return startDay + 14;
+  if (rangeType === 'month') {
+    const d = dayDate(startDay);
+    return ixFromDate(new Date(d.getFullYear(), d.getMonth() + 1, d.getDate()));
+  }
+  if (rangeType === 'year') {
+    const d = dayDate(startDay);
+    return ixFromDate(new Date(d.getFullYear() + 1, d.getMonth(), d.getDate()));
+  }
+  return startDay + 7;
+}
+function plannitGranularity(rangeType){
+  if (rangeType === 'today' || rangeType === 'week') return 'slot';
+  if (rangeType === 'year') return 'biweek';
+  return 'day'; /* twoweek, month */
+}
+function plannitUnitCount(startDay, rangeType){
+  const days = plannitRangeEnd(startDay, rangeType) - startDay;
+  return plannitGranularity(rangeType) === 'biweek' ? Math.ceil(days / 14) : days;
+}
+function plannitRangeLabel(startDay, rangeType){
+  const fmt = d => d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  const start = dayDate(startDay);
+  if (rangeType === 'today') return `Today — ${fmt(start)}`;
+  const end = dayDate(plannitRangeEnd(startDay, rangeType) - 1);
+  if (rangeType === 'week') return `Week of ${fmt(start)}`;
+  if (rangeType === 'year') return `${fmt(start)}, ${start.getFullYear()} – ${fmt(end)}, ${end.getFullYear()}`;
+  return `${fmt(start)} – ${fmt(end)}`;
+}
 
 async function loadPlannitFeed(){
   if (!me) return;
@@ -1989,11 +2027,11 @@ async function loadPlannitFeed(){
     return;
   }
   box.innerHTML = plannitFeedCache.map(e => {
-    const weekLabel = dayLabel(e.week_start_day).replace('Today — ', '');
-    const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : `Week of ${weekLabel} · ${e.member_count} planning`);
+    const rangeLabel = plannitRangeLabel(e.start_day, e.range_type);
+    const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : `${rangeLabel} · ${e.member_count} planning`);
     return `<div class="card post" style="cursor:pointer" onclick="openPlannitDetailById('${e.id}')">` +
       `<div class="head"><div class="avatar">${e.owner === me.username ? '👑' : '🗓️'}</div>` +
-      `<div><div class="who">${escHTML(e.name)}</div><div class="when">${e.owner === me.username ? 'You' : e.owner_display} · week of ${weekLabel}</div></div></div>` +
+      `<div><div class="who">${escHTML(e.name)}</div><div class="when">${e.owner === me.username ? 'You' : e.owner_display} · ${rangeLabel}</div></div></div>` +
       `<div class="subact">${preview}</div>` +
       `</div>`;
   }).join('');
@@ -2004,6 +2042,21 @@ function nextMondays(n){
   const mondayToday = mondayIxOf(TODAY_IX);
   return Array.from({ length: n }, (_, i) => mondayToday + i * 7);
 }
+function refreshPlannitRangePreview(){
+  const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
+  $('#pln-range-preview').textContent = plannitRangeLabel(startDay, plannitCreateRange);
+}
+function setPlannitCreateRange(r){
+  plannitCreateRange = r;
+  $$('#pln-range button').forEach(x => x.classList.toggle('on', x.dataset.r === r));
+  $('#pln-week-row').style.display = (r === 'week' || r === 'twoweek') ? '' : 'none';
+  refreshPlannitRangePreview();
+}
+$('#pln-range').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) setPlannitCreateRange(b.dataset.r);
+});
+$('#pln-week').addEventListener('change', refreshPlannitRangePreview);
 function openCreatePlannit(){
   if (!me) return;
   $('#pln-name').value = '';
@@ -2019,6 +2072,7 @@ function openCreatePlannit(){
         `<input type="checkbox" style="width:18px;height:18px" onchange="togglePlannitInvitee('${f.username}', this.checked)"></label>`
       ).join('')
     : '<div class="sub">Add some friends first — search from FRIENDS.</div>';
+  setPlannitCreateRange('week');
   openSheet('newplannit');
 }
 function togglePlannitInvitee(u, checked){
@@ -2027,9 +2081,9 @@ function togglePlannitInvitee(u, checked){
 async function submitCreatePlannit(){
   const name = $('#pln-name').value.trim();
   if (!name) { toast('Name the plan first'); return; }
-  const week = +$('#pln-week').value;
+  const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
   const { data, error } = await sb.rpc('create_plannit_event', {
-    p_me: me.username, p_name: name, p_week_start: week, p_invitees: [...plannitCreateInvitees],
+    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: plannitCreateRange, p_invitees: [...plannitCreateInvitees],
   });
   if (error || !data.ok) { toast('Could not create — try again'); return; }
   closeSheets();
@@ -2042,21 +2096,48 @@ async function submitCreatePlannit(){
 async function openPlannitDetailById(id){
   const ev = plannitFeedCache.find(e => e.id === id);
   activePlannitEvent = ev
-    ? { id: ev.id, name: ev.name, owner: ev.owner, week_start_day: ev.week_start_day, cancelled: ev.cancelled }
-    : { id, name: 'Plan', owner: null, week_start_day: mondayIxOf(TODAY_IX), cancelled: false };
+    ? { id: ev.id, name: ev.name, owner: ev.owner, start_day: ev.start_day, range_type: ev.range_type, cancelled: ev.cancelled }
+    : { id, name: 'Plan', owner: null, start_day: TODAY_IX, range_type: 'week', cancelled: false };
   $('#pl-feed-view').style.display = 'none';
   $('#pl-detail-view').style.display = 'block';
   $('#pl-fab').style.display = 'none';
   $('#pl-detail-title').textContent = activePlannitEvent.name;
   $('#pl-cancelled-note').style.display = activePlannitEvent.cancelled ? '' : 'none';
   $('#pl-chat-btn').style.display = activePlannitEvent.cancelled ? 'none' : '';
+  $('#pl-cancel-btn').style.display = (!activePlannitEvent.cancelled && activePlannitEvent.owner === me.username) ? '' : 'none';
+  setPlannitBrush('yes');
   await drawPlannitGrid();
+}
+async function confirmCancelPlannitYes(){
+  const ev = activePlannitEvent;
+  closeSheets();
+  if (!ev) return;
+  const { data, error } = await sb.rpc('cancel_plannit_event', { p_me: me.username, p_event_id: ev.id });
+  if (error || !data.ok) { toast('Could not cancel — try again'); return; }
+  ev.cancelled = true;
+  $('#pl-cancelled-note').style.display = '';
+  $('#pl-chat-btn').style.display = 'none';
+  $('#pl-cancel-btn').style.display = 'none';
+  toast('Plan cancelled');
+  drawPlannitGrid();
+  loadPlannitFeed();
 }
 function closePlannitDetail(){
   activePlannitEvent = null;
   $('#pl-feed-view').style.display = '';
   $('#pl-detail-view').style.display = 'none';
   $('#pl-fab').style.display = '';
+}
+
+function plannitUnitHeadHTML(ev, unitIx, granularity){
+  if (granularity === 'biweek') {
+    const s = dayDate(ev.start_day + unitIx * 14);
+    const e = dayDate(Math.min(ev.start_day + unitIx * 14 + 13, plannitRangeEnd(ev.start_day, ev.range_type) - 1));
+    return `<span class="mono" style="font-weight:400;white-space:nowrap">${s.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${e.toLocaleDateString('en-US',{day:'numeric'})}</span>`;
+  }
+  const d = dayDate(ev.start_day + unitIx);
+  const dow = d.toLocaleDateString('en-US', { weekday:'short' }).toUpperCase();
+  return `${dow}<br><span class="mono" style="font-weight:400">${d.getDate()}</span>`;
 }
 
 async function drawPlannitGrid(){
@@ -2066,19 +2147,21 @@ async function drawPlannitGrid(){
   if (!activePlannitEvent || activePlannitEvent.id !== ev.id) return;
   plannitGridCache = error ? [] : (data || []);
 
+  const granularity = plannitGranularity(ev.range_type);
+  const unitCount = plannitUnitCount(ev.start_day, ev.range_type);
   const t = $('#availgrid');
-  const dayHeads = Array.from({ length: 7 }, (_, d) => {
-    const dd = dayDate(ev.week_start_day + d);
-    return `${DOW[d]}<br><span class="mono" style="font-weight:400">${dd.getDate()}</span>`;
-  });
-  t.innerHTML = '<tr><th></th>' + dayHeads.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  const unitHeads = Array.from({ length: unitCount }, (_, u) => plannitUnitHeadHTML(ev, u, granularity));
+  t.innerHTML = '<tr><th></th>' + unitHeads.map(h => `<th>${h}</th>`).join('') + '</tr>';
 
-  PLANNIT_SLOTS.forEach((hr, slotIx) => {
+  const slots = granularity === 'slot' ? PLANNIT_SLOTS : [null];
+  slots.forEach((hr, slotIx) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<th class="rowlab mono">${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}</th>`;
-    for (let d = 0; d < 7; d++) {
+    tr.innerHTML = granularity === 'slot'
+      ? `<th class="rowlab mono">${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}</th>`
+      : `<th class="rowlab">Available</th>`;
+    for (let u = 0; u < unitCount; u++) {
       const td = document.createElement('td');
-      const cellAnswers = plannitGridCache.filter(r => r.day_offset === d && r.slot_index === slotIx);
+      const cellAnswers = plannitGridCache.filter(r => r.day_offset === u && r.slot_index === slotIx);
       const mine = cellAnswers.find(r => r.member === me.username);
       const yesCount = cellAnswers.filter(r => r.answer === 'yes').length;
       const b = document.createElement('button');
@@ -2089,7 +2172,7 @@ async function drawPlannitGrid(){
         ? cellAnswers.map(r => `${r.member_display}: ${r.answer}`).join(', ')
         : 'No answers yet';
       if (!ev.cancelled) {
-        b.onclick = () => cyclePlannitAnswer(d, slotIx, shown);
+        b.onclick = () => paintPlannitAnswer(u, slotIx);
       } else {
         b.disabled = true;
       }
@@ -2100,12 +2183,23 @@ async function drawPlannitGrid(){
   });
 }
 
-async function cyclePlannitAnswer(dayOffset, slotIndex, current){
-  const next = ANSWER_CYCLE[(ANSWER_CYCLE.indexOf(current) + 1) % ANSWER_CYCLE.length];
+/* legend-as-brush: pick a color once, then tap every slot it applies to —
+   no per-tap cycling. */
+let plannitBrush = 'yes';
+function setPlannitBrush(a){
+  plannitBrush = a;
+  $$('#pl-legend span').forEach(x => x.classList.toggle('on', x.dataset.a === a));
+}
+$('#pl-legend').addEventListener('click', e => {
+  const b = e.target.closest('span[data-a]');
+  if (b) setPlannitBrush(b.dataset.a);
+});
+
+async function paintPlannitAnswer(dayOffset, slotIndex){
   const ev = activePlannitEvent;
   if (!ev) return;
   const { data, error } = await sb.rpc('set_plannit_answer', {
-    p_me: me.username, p_event_id: ev.id, p_day_offset: dayOffset, p_slot_index: slotIndex, p_answer: next,
+    p_me: me.username, p_event_id: ev.id, p_day_offset: dayOffset, p_slot_index: slotIndex, p_answer: plannitBrush,
   });
   if (error || !data.ok) { toast('Could not save — check your connection'); return; }
   if (activePlannitEvent && activePlannitEvent.id === ev.id) drawPlannitGrid();
@@ -2160,13 +2254,13 @@ function openPlannitChatFromDetail(){
 
 function renderPlannitCard(pe){
   const isOwn = pe.owner === me.username;
-  const weekLabel = dayLabel(pe.week_start_day).replace('Today — ', '');
+  const rangeLabel = plannitRangeLabel(pe.start_day, pe.range_type);
   const preview = pe.cancelled ? '🚫 Cancelled' : (isOwn
     ? `You — planning with ${pe.member_count} ${pe.member_count === 1 ? 'person' : 'people'}`
     : `${pe.owner_display} invited you to plan "${escHTML(pe.name)}"`);
   return `<div class="card post" style="cursor:pointer" onclick="openPlannitFromSearch('${pe.id}')">` +
     `<div class="head"><div class="avatar">${isOwn ? '👑' : '🗓️'}</div>` +
-    `<div><div class="who">${escHTML(pe.name)}</div><div class="when">week of ${weekLabel}</div></div>` +
+    `<div><div class="who">${escHTML(pe.name)}</div><div class="when">${rangeLabel}</div></div>` +
     `<span class="actbadge">PLANNIT</span></div>` +
     `<div class="kind">${pe.cancelled ? 'CANCELLED' : 'PLANNIT'}</div>` +
     `<div class="subact">${preview}</div>` +
@@ -2249,8 +2343,8 @@ async function loadSearchData(){
   (plannitRows || []).forEach(pe => activityRows.push({
     kind:'plannit', isOwn: pe.owner === who,
     raw: pe,
-    day: pe.week_start_day,
-    t: `${pe.name} · week of ${dayLabel(pe.week_start_day).replace('Today — ', '')}`,
+    day: pe.start_day,
+    t: `${pe.name} · ${plannitRangeLabel(pe.start_day, pe.range_type)}`,
     d: pe.owner === who ? `You — planning with ${pe.member_count} ${pe.member_count === 1 ? 'person' : 'people'}` : `${pe.owner_display} invited you to plan "${pe.name}"`,
   }));
 

@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v30</span>
+    <span class="pill">prototype v31</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -81,10 +81,9 @@
     </span>
     <button class="iconbtn" id="profilebtn" title="Your profile" onclick="openSheet('profile')">🙂</button>
     <button class="iconbtn" title="Privacy controls" onclick="openPrivacy()">🛡️</button>
-    <button class="iconbtn" title="Build notes — what's missing" onclick="openSheet('notes')">📝</button>
   </div>
   <nav class="tabs" id="tabs">
-    <button class="tab on" data-t="schd">SCHD</button>
+    <button class="tab on" data-t="schd">SCHEDULE</button>
     <button class="tab" data-t="frds"><span class="tab-label">FRIENDS<span class="tabbadge" id="freq-badge" hidden>0</span></span></button>
     <button class="tab" data-t="glpr">MILESTONES</button>
     <button class="tab" data-t="plannit">PLANNIT</button>
@@ -270,16 +269,18 @@
     </div>
     <div class="card" id="pl-cancelled-note" style="display:none;color:var(--no);font-weight:700">🚫 This plan was cancelled by its owner.</div>
     <div class="card">
-      <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
-      <div class="legend">
-        <span><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes</span>
-        <span><i style="background:var(--no-soft);color:var(--no)">✕</i> No</span>
-        <span><i style="background:var(--maybe-soft);color:var(--maybe)">?</i> Maybe</span>
-        <span><i style="background:var(--depends-soft);color:var(--depends)">◷</i> Depends</span>
+      <div class="legend" id="pl-legend">
+        <span class="on" data-a="yes"><i style="background:var(--yes-soft);color:var(--yes)">✓</i> Yes</span>
+        <span data-a="no"><i style="background:var(--no-soft);color:var(--no)">✕</i> No</span>
+        <span data-a="maybe"><i style="background:var(--maybe-soft);color:var(--maybe)">?</i> Maybe</span>
+        <span data-a="depends"><i style="background:var(--depends-soft);color:var(--depends)">◷</i> Depends</span>
+        <span data-a="none"><i style="background:var(--surface2);color:var(--ink2)">⊘</i> Clear</span>
       </div>
-      <div class="sub" style="margin-top:8px">Tap a cell to cycle your own answer — everyone's answers overlay here so you can eyeball the overlap.</div>
+      <div class="sub" style="margin:8px 0">Tap a color above, then tap every slot that applies — it paints your answer straight in, no cycling through each one.</div>
+      <div class="grid-wrap"><table class="avail" id="availgrid"></table></div>
     </div>
     <button class="btn primary" id="pl-chat-btn" style="width:100%;justify-content:center" onclick="openPlannitChatFromDetail()">💬 Discuss in chat</button>
+    <button class="btn danger" id="pl-cancel-btn" style="width:100%;justify-content:center;margin-top:10px" onclick="openSheet('confirmcancelplannit')">🚫 Cancel this plan</button>
   </div>
 
   <button class="fab" id="pl-fab" onclick="openCreatePlannit()" title="New plan">＋</button>
@@ -374,8 +375,18 @@
   <h3>🗓️ New plan</h3>
   <div class="profrow"><label for="pln-name">Plan name</label>
     <input id="pln-name" placeholder="e.g. Ski trip" style="width:100%"></div>
-  <div class="profrow"><label for="pln-week">Week</label>
+  <div class="profrow"><label>Range</label>
+    <div class="seg" id="pln-range">
+      <button data-r="today">Today</button>
+      <button class="on" data-r="week">This week</button>
+      <button data-r="twoweek">2 weeks</button>
+      <button data-r="month">This month</button>
+      <button data-r="year">Yearly</button>
+    </div>
+  </div>
+  <div class="profrow" id="pln-week-row"><label for="pln-week">Starting week</label>
     <select id="pln-week" style="width:100%"></select></div>
+  <div class="sub" id="pln-range-preview" style="margin:-6px 0 10px"></div>
   <div class="profrow"><label>Invite friends</label>
     <div id="pln-people" style="margin-top:6px"></div></div>
   <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitCreatePlannit()">Create plan</button>
@@ -415,6 +426,16 @@
   </div>
 </div>
 
+<div class="sheet" id="sheet-confirmcancelplannit" role="dialog" aria-label="Confirm cancel plan">
+  <div class="handle"></div>
+  <h3>Cancel this plan?</h3>
+  <div class="sub" style="margin-bottom:14px">It'll stay visible marked "Cancelled" for everyone invited, and the grid locks — no one can change their answers anymore.</div>
+  <div class="row" style="flex-direction:column;gap:8px">
+    <button class="btn danger" style="width:100%;justify-content:center" onclick="confirmCancelPlannitYes()">Yes, cancel it.</button>
+    <button class="btn" style="width:100%;justify-content:center" onclick="closeSheets()">No, don't cancel it.</button>
+  </div>
+</div>
+
 <div class="scrim" id="scrim" onclick="closeSheets()"></div>
 <div class="sheet" id="sheet-privacy" role="dialog" aria-label="Privacy controls">
   <div class="handle"></div>
@@ -445,26 +466,6 @@
 </div>
 
 <!-- ============ notes sheet ============ -->
-<div class="sheet" id="sheet-notes" role="dialog" aria-label="Build notes">
-  <div class="handle"></div>
-  <h3>📝 What's missing / needs adjustment</h3>
-  <ul class="notes">
-    <li><span class="q">Overlap engine (PLANNIT):</span> auto-finding best common slots from everyone's grids — flagged for a later session. Grid + colors are in; the math isn't.</li>
-    <li><span class="q">Location search:</span> currently canned places (YMCA, Fairview, Don Mills, Bayview). Needs: how locations get added to a network, and region vs. exact-place search rules. Marked TBD.</li>
-    <li><span class="q">Time-range replies — decided:</span> a suggestion only needs to overlap with the poster's range, not fit fully inside it — a range is the most you could go, not a fixed commitment. Anything beyond the overlap gets sorted out by message. Live in the demo feed; not wired to a real backend reply flow yet.</li>
-    <li><span class="q">Custom activity trackers:</span> the 3 tracker types cover count / measure / ladder, but the "create goal" wizard (pick unit, direction, milestones) is a stub — needs a real flow.</li>
-    <li><span class="q">Universal logger:</span> fan-out currently covers weekly chart, all-time stats, and the bench/swim trend cards via simple tag matching (Gym+Chest → bench, Swim+Distance → swim time). A real version needs a mapping you can edit per goal. <span class="tag-todo">LATER</span></li>
-    <li><span class="q">Smart recommendations:</span> now flags same-day overload (3+ intense activities stacked on one day) and gaps in habitual activities (something you usually do a lot missing from your whole visible window), on top of the earlier recovery rules (legs→run, back→swim, 3 hard days→rest). Still rule-of-thumb, not a real muscle-group/intensity model. <span class="tag-todo">LATER</span></li>
-    <li><span class="q">Profile auth:</span> real accounts now exist (username + bcrypt-hashed password, server-side). Still no session/JWT, so requests trust the acting username rather than a verified login token — fine for a friends-only trial, not hardened against someone spoofing a username via devtools. Passkeys remain a future email-free upgrade path.</li>
-    <li><span class="q">Notifications — decided:</span> Privacy → Notifications now lets you choose "Everything" or "Only join requests" for what raises the 💬 badge. It's poll-based (checks every few seconds while a screen's open), not a push notification.</li>
-    <li><span class="q">Groups vs circles — decided:</span> Circles are now one real, persistent object — create one, add/remove friends anytime, and it's reusable as the audience on any post plus PLANNIT's send-to. SEARCH groups aren't wired in yet since SEARCH/Location isn't backed by real data.</li>
-    <li><span class="q">Live status — decided:</span> manual only. You'd tap "I'm here" to show up; nothing shares your location automatically. Not built yet — SEARCH/Location is still canned demo data.</li>
-    <li><span class="q">Editing/deleting posts</span> after friends have replied with sub-ranges — what happens to their replies?</li>
-    <li><span class="q">Names:</span> SCHD / FRDS / GLPR / PLANNIT are placeholders — GLPR especially reads unclear.</li>
-    <li><span class="q">Not built yet (by design):</span> PLANNIT send/receive and SEARCH are still look-and-feel demo data — everything else (accounts, friends, schedule, messaging, circles) is real and persists.</li>
-  </ul>
-</div>
-
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
