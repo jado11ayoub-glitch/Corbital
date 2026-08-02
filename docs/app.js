@@ -276,6 +276,9 @@ async function enterApp(){
   $('#pf-name').value = me.displayName;
   $('#pf-account').textContent = '@' + me.username;
   $$('#pf-av button').forEach(b => b.classList.toggle('on', b.textContent === me.av));
+  TODAY_IX = computeTodayIx();
+  weekOffset = 0;
+  selDay = TODAY_IX;
   loadStats();
   await loadScheduleFromServer();
   drawWeek(); drawSlots(); drawFreq(); drawTotals(); drawLogbook();
@@ -634,14 +637,35 @@ async function acceptReq(u){
   toast(`You and @${u} are now friends 🤝`);
 }
 
-/* ---------- SCHD: multi-week calendar ---------- */
+/* ---------- SCHD: multi-week calendar ----------
+   day_index is stable across time: it's the real calendar day count
+   since a fixed reference date (Jan 1 1970, local time), NOT an offset
+   from "today" — so a plan you post today keeps meaning the same real
+   date forever, even as "today" moves forward every day this stays open. */
 const DOW = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
-const BASE = new Date(2026, 6, 27);        /* Mon Jul 27 — week containing "today" */
-const TODAY_IX = 4;                        /* Fri Jul 31 */
+const EPOCH_REF = new Date(1970, 0, 1);
+function ixFromDate(date){
+  const a = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((a - EPOCH_REF) / 86400000);
+}
+function dayDate(ix){ const d = new Date(EPOCH_REF); d.setDate(d.getDate() + ix); return d; }
+function computeTodayIx(){ return ixFromDate(new Date()); }
+function mondayIxOf(ix){ const dow = (dayDate(ix).getDay() + 6) % 7; /* 0=Mon..6=Sun */ return ix - dow; }
+
+let TODAY_IX = computeTodayIx();
 let weeksShown = 1;
+let weekOffset = 0;                        /* 0 = the real current week; negative = past weeks */
 let selDay = TODAY_IX;
 
-function dayDate(ix){ const d = new Date(BASE); d.setDate(d.getDate() + ix); return d; }
+/* catches a real midnight rollover if the app is left open overnight */
+setInterval(() => {
+  const fresh = computeTodayIx();
+  if (fresh !== TODAY_IX) {
+    TODAY_IX = fresh;
+    drawWeek(); drawSlots();
+  }
+}, 60000);
+
 function dayLabel(ix){
   const d = dayDate(ix);
   const s = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
@@ -672,37 +696,55 @@ $('#weeksseg').addEventListener('click', e => {
   if (!b) return;
   $$('#weeksseg button').forEach(x => x.classList.toggle('on', x === b));
   weeksShown = +b.dataset.w;
-  if (selDay >= weeksShown * 7) selDay = TODAY_IX;
+  const start = mondayIxOf(TODAY_IX) + weekOffset * 7;
+  if (selDay < start || selDay >= start + weeksShown * 7) selDay = Math.max(selDay, start);
   drawWeek();
   drawSlots();
 });
+
+const MAX_WEEKS_BACK = 8;
+function shiftWeekOffset(delta){
+  weekOffset = Math.max(-MAX_WEEKS_BACK, Math.min(0, weekOffset + delta));
+  selDay = mondayIxOf(TODAY_IX) + weekOffset * 7;
+  drawWeek();
+  drawSlots();
+}
 
 function drawWeek(){
   const w = $('#weekstrip');
   w.innerHTML = '';
   const total = weeksShown * 7;
-  for (let i = 0; i < total; i++) {
+  const start = mondayIxOf(TODAY_IX) + weekOffset * 7;
+  for (let k = 0; k < total; k++) {
+    const ix = start + k;
     const el = document.createElement('button');
-    el.className = 'day' + (i === selDay ? ' on' : '');
-    const marks = (daySlots[i] || []).filter(s => !s.cancelled).slice(0, 3)
-      .map(s => `<i style="background:${i === selDay ? 'var(--on-brand)' : s.c}"></i>`).join('');
-    el.innerHTML = `<div class="dow">${DOW[i % 7]}</div><div class="num">${dayDate(i).getDate()}</div><div class="marks">${marks}</div>`;
-    el.onclick = () => { selDay = i; drawWeek(); drawSlots(); };
+    el.className = 'day' + (ix === selDay ? ' on' : '') + (ix < TODAY_IX ? ' past' : '');
+    const marks = (daySlots[ix] || []).filter(s => !s.cancelled).slice(0, 3)
+      .map(s => `<i style="background:${ix === selDay ? 'var(--on-brand)' : s.c}"></i>`).join('');
+    el.innerHTML = `<div class="dow">${DOW[k % 7]}</div><div class="num">${dayDate(ix).getDate()}</div><div class="marks">${marks}</div>`;
+    el.onclick = () => { selDay = ix; drawWeek(); drawSlots(); };
     w.appendChild(el);
   }
-  const endD = dayDate(total - 1);
-  $('#weekrangelabel').textContent = weeksShown === 1
+  const startD = dayDate(start), endD = dayDate(start + total - 1);
+  $('#weekrangelabel').textContent = weekOffset === 0 && weeksShown === 1
     ? 'This week'
-    : `Jul 27 – ${endD.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+    : `${startD.toLocaleDateString('en-US', { month:'short', day:'numeric' })} – ${endD.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+  $('#weekback').style.display = weekOffset <= -MAX_WEEKS_BACK ? 'none' : '';
+  $('#weekfwd').style.display = weekOffset === 0 ? 'none' : '';
 }
 
 function drawSlots(){
   $('#daylabel').textContent = dayLabel(selDay);
+  const isPast = selDay < TODAY_IX;
+  $('#quickadd-block').style.display = isPast ? 'none' : '';
+  $('#pastday-note').style.display = isPast ? '' : 'none';
   const box = $('#slots');
   box.innerHTML = '';
   const list = daySlots[selDay] || [];
   if (!list.length) {
-    box.innerHTML = '<div class="card sub">Nothing planned — tap an activity chip above to add.</div>';
+    box.innerHTML = isPast
+      ? '<div class="card sub">Nothing was planned this day.</div>'
+      : '<div class="card sub">Nothing planned — tap an activity chip above to add.</div>';
   }
   list.forEach((s, ix) => {
     const el = document.createElement('div');
@@ -921,6 +963,7 @@ function drawCompSubs(){
 let editingSlot = null; /* {day, ix} while the composer is editing an existing slot, else null */
 
 function openComposer(a){
+  if (selDay < TODAY_IX) { toast("Can't plan for a day that's already passed"); return; }
   editingSlot = null;
   curAct = a;
   compSel = [];
@@ -976,6 +1019,7 @@ async function postPlan(){
   if (!curAct) return;
   const editing = editingSlot;
   const day = editing ? editing.day : selDay;
+  if (!editing && day < TODAY_IX) { toast("Can't plan for a day that's already passed"); return; }
   const f = +$('#t-from').value, t = +$('#t-to').value;
   const type = $('#posttype .on').dataset.v;
   if (type !== 'ask' && t <= f) { toast('End time has to be after start'); return; }
@@ -990,7 +1034,12 @@ async function postPlan(){
     p_me: me.username, p_id: existing ? existing.id : null, p_day: day, p_act: curAct.n, p_color: curAct.c,
     p_time: timeLabel, p_note: note, p_audience: aud, p_range: isRange, p_tags: tags,
   });
-  if (error) { toast('Could not save — check your connection'); return; }
+  if (error) {
+    toast(error.message && error.message.includes('backdate')
+      ? "Can't plan for a day that's already passed"
+      : 'Could not save — check your connection');
+    return;
+  }
 
   if (editing) {
     daySlots[editing.day][editing.ix] = rowToSlot(data);
@@ -1049,11 +1098,12 @@ function drawRecs(){
   const recs = [];
   const horizon = Math.max(weeksShown * 7, 14);
   /* big-event awareness: protect the 2 days before anything tagged as an event */
-  for (let e = 0; e < horizon; e++) {
+  for (let eo = 0; eo < horizon; eo++) {
+    const e = TODAY_IX + eo;
     const ev = (daySlots[e] || []).find(s => slotTags(s).event);
     if (!ev) continue;
     const evName = ev.note.split('—')[0].trim() || ev.act;
-    for (let i = Math.max(0, e - 2); i < e; i++) {
+    for (let i = Math.max(TODAY_IX, e - 2); i < e; i++) {
       if ((daySlots[i] || []).some(s => slotTags(s).legs && !s.done)) {
         recs.push({ ic:'⚠️', t:`${evName} ${dayName(e)} — keep legs fresh`,
           body:`You have ${evName.toLowerCase()} ${dayName(e)} and heavy leg work planned ${dayName(i)}. Go light or skip legs entirely so you're fresh for it.` });
@@ -1063,7 +1113,8 @@ function drawRecs(){
       }
     }
   }
-  for (let i = 0; i < horizon; i++) {
+  for (let io = 0; io < horizon; io++) {
+    const i = TODAY_IX + io;
     const today = (daySlots[i] || []).map(slotTags);
     const next  = (daySlots[i + 1] || []).map(slotTags);
     if (today.some(t => t.legs) && next.some(t => t.run)) {
@@ -1076,7 +1127,8 @@ function drawRecs(){
     }
   }
   let streak = 0;
-  for (let i = 0; i < horizon; i++) {
+  for (let io = 0; io < horizon; io++) {
+    const i = TODAY_IX + io;
     if ((daySlots[i] || []).some(s => slotTags(s).hard)) {
       streak++;
       if (streak === 3) recs.push({ ic:'😮‍💨', t:'Three intense days in a row',
@@ -1084,7 +1136,8 @@ function drawRecs(){
     } else streak = 0;
   }
   /* same-day overload: 3+ separate hard activities stacked on one day */
-  for (let i = 0; i < horizon; i++) {
+  for (let io = 0; io < horizon; io++) {
+    const i = TODAY_IX + io;
     const hardActs = [...new Set((daySlots[i] || []).filter(s => slotTags(s).hard).map(s => s.act))];
     if (hardActs.length >= 3) {
       recs.push({ ic:'🥵', t:`${hardActs.join(' + ')} all on ${dayName(i)}`,
@@ -1093,7 +1146,7 @@ function drawRecs(){
   }
   /* habitual-activity gap: something you usually do a lot is missing from your whole visible window */
   sortedActs().filter(a => a.uses >= 5).forEach(a => {
-    const scheduled = Array.from({ length: horizon }, (_, i) => daySlots[i] || []).flat().some(s => s.act === a.n);
+    const scheduled = Array.from({ length: horizon }, (_, io) => daySlots[TODAY_IX + io] || []).flat().some(s => s.act === a.n);
     if (!scheduled) {
       recs.push({ ic:'🫥', t:`No ${a.n} on your calendar right now`,
         body:`You've logged ${a.n} ${a.uses} times before — it's usually a regular thing for you, but it's not scheduled anywhere in the next ${horizon} days. Might be intentional, might not be — worth a check.` });

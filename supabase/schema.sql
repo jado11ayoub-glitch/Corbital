@@ -355,6 +355,20 @@ revoke all on plan_joins from anon, authenticated;
 
 alter table plans add column if not exists edited boolean not null default false;
 
+-- one-time migration: day_index used to be counted relative to a fixed
+-- prototype anchor date (Mon Jul 27 2026), so "today" only worked by
+-- coincidence on the day this was built. It's now counted as real
+-- calendar days since 1970-01-01, so it's always live. Old-style values
+-- are small (well under 10000); shift them once to the new scheme. Safe
+-- to re-run — once shifted, values are ~20000+ and this no-ops forever after.
+do $$
+begin
+  if exists (select 1 from plans where day_index < 10000) then
+    update plans set day_index = day_index + (date '2026-07-27' - date '1970-01-01')
+      where day_index < 10000;
+  end if;
+end $$;
+
 -- join requests now need the owner's approval instead of joining instantly —
 -- 'pending' until the owner answers via the message with Yes/No buttons.
 alter table plan_joins add column if not exists status text not null default 'pending' check (status in ('pending','accepted'));
@@ -686,7 +700,7 @@ language sql security definer as $$
   )
   select t.* from (
     select m.plan_id,
-      m.act || ' · ' || (array['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])[(m.day_index % 7) + 1] as title,
+      m.act || ' · ' || to_char(date '1970-01-01' + m.day_index, 'Dy') as title,
       m.owner, m.cancelled,
       (select body from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_body,
       (select em.created_at from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_at
@@ -779,6 +793,14 @@ grant execute on function cancel_plan(text,uuid) to anon;
 
 -- editing an existing plan (p_id not null) flags it "edited" so viewers
 -- see "(edited)" next to it; brand-new plans (p_id null) start unedited.
+-- p_day is a real, stable calendar day count (days since 1970-01-01,
+-- client-local time) — not an offset from "today" — so a posted plan's
+-- date never shifts meaning as real time passes. New plans (p_id null)
+-- can't be created for a day before today; a 1-day tolerance absorbs
+-- timezone skew between the browser's local clock and the DB server's,
+-- since the strict same-day UX check already happens client-side.
+-- Editing an existing plan never touches its day, so that path is
+-- exempt — this only blocks creating brand-new backdated plans.
 create or replace function upsert_plan(
   p_me text, p_id uuid, p_day int, p_act text, p_color text, p_time text,
   p_note text, p_audience text, p_range boolean, p_tags text[])
@@ -786,6 +808,9 @@ returns plans language plpgsql security definer as $$
 declare r plans;
 begin
   if p_id is null then
+    if p_day < (current_date - date '1970-01-01') - 1 then
+      raise exception 'backdate_blocked: cannot create a new plan for a day in the past';
+    end if;
     insert into plans(owner, day_index, act, color, time_label, note, audience, is_range, tags)
       values (p_me, p_day, p_act, p_color, p_time, p_note, p_audience, p_range, p_tags)
       returning * into r;

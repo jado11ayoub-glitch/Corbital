@@ -107,6 +107,7 @@ h2{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
 .day .marks i{width:5px;height:5px;border-radius:50%}
 .day.on{background:var(--brand);border-color:var(--brand)}
 .day.on .dow,.day.on .num{color:var(--on-brand)}
+.day.past:not(.on){opacity:.6}
 .slot{display:flex;gap:10px;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);margin-bottom:8px;align-items:flex-start}
 .slot .stripe{width:4px;align-self:stretch;border-radius:4px;background:var(--c,var(--other));flex:none}
 .slot .t{font-weight:700;font-size:13px}

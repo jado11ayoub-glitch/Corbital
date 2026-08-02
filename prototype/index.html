@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-mark.png" class="logo-mark" alt="Corbits">orbits<span class="dot">.</span></div>
-    <span class="pill">prototype v28</span>
+    <span class="pill">prototype v29</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -96,7 +96,9 @@
 <!-- ================= SCHD ================= -->
 <section class="panel on" id="p-schd">
   <div class="weekctl">
+    <button class="btn small" id="weekback" onclick="shiftWeekOffset(-1)" title="Previous week">◀</button>
     <span class="sub" id="weekrangelabel">This week</span>
+    <button class="btn small" id="weekfwd" onclick="shiftWeekOffset(1)" title="Back to this week" style="display:none">▶</button>
     <div class="spacer"></div>
     <div class="seg" id="weeksseg">
       <button class="on" data-w="1">1w</button><button data-w="2">2w</button><button data-w="3">3w</button><button data-w="4">4w</button>
@@ -104,13 +106,16 @@
   </div>
   <div class="weekstrip" id="weekstrip"></div>
 
-  <div class="eyebrow">Quick add — tap an activity</div>
-  <div class="chiprow" id="actchips"></div>
-  <div class="newact" id="newact">
-    <input id="na-name" placeholder="Name it — e.g. Volleyball practice" style="flex:1;min-width:150px">
-    <div class="colorpick" id="na-colors"></div>
-    <button class="btn primary small" onclick="saveNewActivity()">Save</button>
+  <div id="quickadd-block">
+    <div class="eyebrow">Quick add — tap an activity</div>
+    <div class="chiprow" id="actchips"></div>
+    <div class="newact" id="newact">
+      <input id="na-name" placeholder="Name it — e.g. Volleyball practice" style="flex:1;min-width:150px">
+      <div class="colorpick" id="na-colors"></div>
+      <button class="btn primary small" onclick="saveNewActivity()">Save</button>
+    </div>
   </div>
+  <div class="card sub" id="pastday-note" style="display:none">📅 This day has passed — you can view what was planned, but new plans can only be added for today or later.</div>
 
   <div class="card composer" id="composer" style="display:none;margin-top:14px">
     <h2 id="composer-title">Plan: Gym</h2>
