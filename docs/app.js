@@ -2139,9 +2139,21 @@ $('#pln-range').addEventListener('click', e => {
 });
 $('#pln-week').addEventListener('change', refreshPlannitRangePreview);
 
+/* "Decide a plan" — vote on what to do BEFORE picking a date (creates a
+   dateless range_type='poll' event, same poll used by the after-the-fact
+   "Turn this into a vote" toggle in the detail view). */
+$('#pln-vote-now').addEventListener('change', e => {
+  const voteNow = e.target.checked;
+  $('#pln-range-block').style.display = voteNow ? 'none' : '';
+  $('#pln-name-label').textContent = voteNow ? 'What are we deciding?' : "What's the plan?";
+  $('#pln-name').placeholder = voteNow ? 'e.g. What should we do this weekend?' : 'e.g. Ski trip';
+});
+
 function openCreatePlannit(){
   if (!me) return;
   $('#pln-name').value = '';
+  $('#pln-vote-now').checked = false;
+  $('#pln-vote-now').dispatchEvent(new Event('change'));
   plannitCreateInvitees = new Set();
   const weekSel = $('#pln-week');
   weekSel.innerHTML = nextMondays(8).map((ix, i) =>
@@ -2161,11 +2173,13 @@ function togglePlannitInvitee(u, checked){
   if (checked) plannitCreateInvitees.add(u); else plannitCreateInvitees.delete(u);
 }
 async function submitCreatePlannit(){
+  const voteNow = $('#pln-vote-now').checked;
   const name = $('#pln-name').value.trim();
-  if (!name) { toast('Name the plan first'); return; }
-  const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
+  if (!name) { toast(voteNow ? 'Give it a title first' : 'Name the plan first'); return; }
+  const rangeType = voteNow ? 'poll' : plannitCreateRange;
+  const startDay = (!voteNow && (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek')) ? +$('#pln-week').value : TODAY_IX;
   const { data, error } = await sb.rpc('create_plannit_event', {
-    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: plannitCreateRange, p_is_tbd: false, p_invitees: [...plannitCreateInvitees],
+    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: rangeType, p_is_tbd: false, p_invitees: [...plannitCreateInvitees],
   });
   if (error || !data.ok) { toast('Could not create — try again'); return; }
   closeSheets();
