@@ -1044,6 +1044,21 @@ begin
 end $$;
 grant execute on function cancel_plannit_event(text,uuid) to anon;
 
+-- owner-only: turns a plain dated plan into one with a poll attached (or
+-- back), for when the owner decides after creating it that the group
+-- should vote on what to actually do. Blocked once the poll's locked in.
+create or replace function set_plannit_tbd(p_me text, p_event_id uuid, p_is_tbd boolean)
+returns json language plpgsql security definer as $$
+declare v_rows int;
+begin
+  update plannit_events set is_tbd = coalesce(p_is_tbd, false)
+    where id = p_event_id and owner = p_me and cancelled = false and poll_closed = false;
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function set_plannit_tbd(text,uuid,boolean) to anon;
+
 -- ---------- PLANNIT: vote on what the event is (is_tbd events, or
 -- range_type='poll' standalone polls) — any member can propose an
 -- option, one vote per member, owner can lock in the leading option

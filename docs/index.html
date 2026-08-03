@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v34</span>
+    <span class="pill">prototype v35</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -268,6 +268,7 @@
       <button class="btn small" onclick="openPlannitMembers()">👥</button>
     </div>
     <div class="card" id="pl-cancelled-note" style="display:none;color:var(--no);font-weight:700">🚫 This plan was cancelled by its owner.</div>
+    <button class="btn" id="pl-vote-toggle-btn" style="width:100%;justify-content:center;display:none;margin-bottom:10px" onclick="togglePlannitVote()">🗳️ Not sure what to do yet? Turn this into a vote</button>
     <div class="card" id="pl-poll-card" style="display:none">
       <div class="eyebrow">🗳️ Vote: what's this actually gonna be?</div>
       <div id="pl-poll-options"></div>
@@ -384,42 +385,20 @@
 <div class="sheet" id="sheet-newplannit" role="dialog" aria-label="New plan">
   <div class="handle"></div>
   <h3>🗓️ New plan</h3>
-  <div class="profrow">
-    <div class="seg" id="pln-mode" style="width:100%">
-      <button class="on" data-mode="date" style="flex:1">📅 Choose date</button>
-      <button data-mode="activity" style="flex:1">🗳️ Choose activity</button>
+  <div class="profrow"><label for="pln-name">What's the plan?</label>
+    <input id="pln-name" placeholder="e.g. Ski trip" style="width:100%"></div>
+  <div class="profrow"><label>Range</label>
+    <div class="seg" id="pln-range">
+      <button data-r="today">Today</button>
+      <button class="on" data-r="week">This week</button>
+      <button data-r="twoweek">2 weeks</button>
+      <button data-r="month">This month</button>
+      <button data-r="year">Yearly</button>
     </div>
   </div>
-
-  <div id="pln-date-fields">
-    <div class="profrow"><label for="pln-name">What's the plan?</label>
-      <input id="pln-name" placeholder="e.g. Ski trip" style="width:100%"></div>
-    <div class="profrow"><label>Range</label>
-      <div class="seg" id="pln-range">
-        <button data-r="today">Today</button>
-        <button class="on" data-r="week">This week</button>
-        <button data-r="twoweek">2 weeks</button>
-        <button data-r="month">This month</button>
-        <button data-r="year">Yearly</button>
-      </div>
-    </div>
-    <div class="profrow" id="pln-week-row"><label for="pln-week">Starting week</label>
-      <select id="pln-week" style="width:100%"></select></div>
-    <div class="sub" id="pln-range-preview" style="margin:-6px 0 10px"></div>
-  </div>
-
-  <div id="pln-activity-fields" style="display:none">
-    <div class="profrow"><label for="pln-activity-title">What are we deciding?</label>
-      <input id="pln-activity-title" placeholder="e.g. What should we do this weekend?" style="width:100%"></div>
-    <div class="profrow"><label>Options <span class="sub">(optional — can add more after)</span></label>
-      <div id="pln-activity-optlist" style="margin-bottom:8px"></div>
-      <div class="row" style="gap:8px">
-        <input id="pln-activity-optinput" placeholder="e.g. Beach day" style="flex:1">
-        <button class="btn small" onclick="addPlannitCreatePollOption()">＋</button>
-      </div>
-    </div>
-  </div>
-
+  <div class="profrow" id="pln-week-row"><label for="pln-week">Starting week</label>
+    <select id="pln-week" style="width:100%"></select></div>
+  <div class="sub" id="pln-range-preview" style="margin:-6px 0 10px"></div>
   <div class="profrow"><label>Invite friends</label>
     <div id="pln-people" style="margin-top:6px"></div></div>
   <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitCreatePlannit()">Create plan</button>
