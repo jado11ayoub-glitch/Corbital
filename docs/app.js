@@ -2044,14 +2044,12 @@ function nextMondays(n){
   const mondayToday = mondayIxOf(TODAY_IX);
   return Array.from({ length: n }, (_, i) => mondayToday + i * 7);
 }
-let plannitCreateMode = 'plan'; /* 'plan' | 'vote' — do they already know what they're doing? */
+let plannitCreateMode = 'date'; /* 'date' (know what, deciding when) | 'activity' (know when, deciding what) */
 function setPlannitCreateMode(m){
   plannitCreateMode = m;
   $$('#pln-mode button').forEach(x => x.classList.toggle('on', x.dataset.mode === m));
-  const isVote = m === 'vote';
-  $('#pln-name-label').textContent = isVote ? 'Give it a title' : 'What\'s the plan?';
-  $('#pln-name').placeholder = isVote ? 'e.g. Weekend hangout' : 'e.g. Ski trip';
-  $('#pln-vote-hint').style.display = isVote ? '' : 'none';
+  $('#pln-date-fields').style.display = m === 'date' ? '' : 'none';
+  $('#pln-activity-fields').style.display = m === 'activity' ? '' : 'none';
 }
 $('#pln-mode').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -2072,9 +2070,40 @@ $('#pln-range').addEventListener('click', e => {
   if (b) setPlannitCreateRange(b.dataset.r);
 });
 $('#pln-week').addEventListener('change', refreshPlannitRangePreview);
+
+/* pre-seed poll options before the event even exists — added in bulk
+   right after create_plannit_event succeeds */
+let plannitCreatePollOptions = [];
+function renderPlannitCreatePollOptions(){
+  const box = $('#pln-activity-optlist');
+  box.innerHTML = plannitCreatePollOptions.length
+    ? plannitCreatePollOptions.map((label, i) =>
+        `<div class="frow"><div class="g"><div class="dn">${escHTML(label)}</div></div>` +
+        `<button class="btn small" onclick="removePlannitCreatePollOption(${i})">✕</button></div>`
+      ).join('')
+    : '';
+}
+function addPlannitCreatePollOption(){
+  const input = $('#pln-activity-optinput');
+  const label = input.value.trim();
+  if (!label) return;
+  plannitCreatePollOptions.push(label);
+  input.value = '';
+  renderPlannitCreatePollOptions();
+}
+$('#pln-activity-optinput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addPlannitCreatePollOption(); } });
+function removePlannitCreatePollOption(i){
+  plannitCreatePollOptions.splice(i, 1);
+  renderPlannitCreatePollOptions();
+}
+
 function openCreatePlannit(){
   if (!me) return;
   $('#pln-name').value = '';
+  $('#pln-activity-title').value = '';
+  $('#pln-activity-optinput').value = '';
+  plannitCreatePollOptions = [];
+  renderPlannitCreatePollOptions();
   plannitCreateInvitees = new Set();
   const weekSel = $('#pln-week');
   weekSel.innerHTML = nextMondays(8).map((ix, i) =>
@@ -2087,7 +2116,7 @@ function openCreatePlannit(){
         `<input type="checkbox" style="width:18px;height:18px" onchange="togglePlannitInvitee('${f.username}', this.checked)"></label>`
       ).join('')
     : '<div class="sub">Add some friends first — search from FRIENDS.</div>';
-  setPlannitCreateMode('plan');
+  setPlannitCreateMode('date');
   setPlannitCreateRange('week');
   openSheet('newplannit');
 }
@@ -2095,14 +2124,20 @@ function togglePlannitInvitee(u, checked){
   if (checked) plannitCreateInvitees.add(u); else plannitCreateInvitees.delete(u);
 }
 async function submitCreatePlannit(){
-  const name = $('#pln-name').value.trim();
-  if (!name) { toast(plannitCreateMode === 'vote' ? 'Give it a title first' : 'Name the plan first'); return; }
-  const startDay = (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek') ? +$('#pln-week').value : TODAY_IX;
-  const isTbd = plannitCreateMode === 'vote';
+  const isActivityMode = plannitCreateMode === 'activity';
+  const name = (isActivityMode ? $('#pln-activity-title').value : $('#pln-name').value).trim();
+  if (!name) { toast(isActivityMode ? 'Give it a title first' : 'Name the plan first'); return; }
+  const startDay = (!isActivityMode && (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek')) ? +$('#pln-week').value : TODAY_IX;
+  const rangeType = isActivityMode ? 'poll' : plannitCreateRange;
   const { data, error } = await sb.rpc('create_plannit_event', {
-    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: plannitCreateRange, p_is_tbd: isTbd, p_invitees: [...plannitCreateInvitees],
+    p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: rangeType, p_is_tbd: false, p_invitees: [...plannitCreateInvitees],
   });
   if (error || !data.ok) { toast('Could not create — try again'); return; }
+  if (isActivityMode && plannitCreatePollOptions.length) {
+    for (const label of plannitCreatePollOptions) {
+      await sb.rpc('add_plannit_poll_option', { p_me: me.username, p_event_id: data.id, p_label: label });
+    }
+  }
   closeSheets();
   await loadPlannitFeed();
   toast(plannitCreateInvitees.size ? `Created — invited ${plannitCreateInvitees.size} ✉️` : 'Created ✓');
