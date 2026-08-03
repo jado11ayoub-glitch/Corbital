@@ -1776,6 +1776,7 @@ const freq = {
 function drawFreq(){
   const box = $('#freqchart');
   box.innerHTML = '';
+  box.classList.add('chartwrap');
   const max = 5;
   freq.weeks.forEach((w, wi) => {
     const col = document.createElement('div');
@@ -1788,13 +1789,15 @@ function drawFreq(){
       b.style.setProperty('--c', s.c);
       b.style.height = (s.v[wi] / max * 100) + '%';
       b.style.width = '12px';
-      b.title = `${s.n}: ${s.v[wi]} sessions`;
+      b.style.cursor = 'pointer';
+      b.onclick = () => chartPointTap(box, b, `${s.n}, ${w}: ${s.v[wi]} session${s.v[wi] === 1 ? '' : 's'}`);
       grp.appendChild(b);
     });
     col.appendChild(grp);
     col.insertAdjacentHTML('beforeend', `<div class="l">${w}</div>`);
     box.appendChild(col);
   });
+  box.insertAdjacentHTML('beforeend', '<div class="chart-callout" style="display:none"></div>');
   $('#freqlegend').innerHTML = freq.series
     .map(s => `<span><i style="background:${s.c}"></i>${s.n}</span>`).join('');
 }
@@ -1903,9 +1906,13 @@ function logActivity(actName, tags, sourceNote, specs){
     }
   }
   if (actName === 'Swim' && (tags.includes('Distance') || tags.includes('Sprint'))) {
-    swimPts.push({ x: swimPts[swimPts.length - 1].x + 4, y: Math.max(7, swimPts[swimPts.length - 1].y - 0.2) });
+    const sp = specs['Distance'] || specs['Sprint'] || {};
+    const time = parseFloat(sp.time);
+    const dist = sp.dist ? ` (${sp.dist}m)` : '';
+    swimPts.push({ x: swimPts[swimPts.length - 1].x + 4,
+                   y: time > 0 ? time : Math.max(7, swimPts[swimPts.length - 1].y - 0.2) });
     drawSwim();
-    hit.push('swim trend');
+    hit.push(time > 0 ? `swim trend (${time} min${dist} logged)` : 'swim trend');
   }
   const tagLine = tags.length
     ? tags.map(t => specs[t] ? specText(t, specs[t]) : t)
@@ -2003,7 +2010,10 @@ function runFx(){
   })();
 }
 
-/* Generic SVG line chart. invert=true → lower values plot higher (times). */
+/* Generic SVG line chart. invert=true → lower values plot higher (times).
+   Tappable — a native <title> hover tooltip doesn't work on mobile, so each
+   point is a real click/tap target that shows a callout with the exact
+   value (see chartPointTap below). */
 function lineChart(el, pts, unit, color, invert){
   const W = 480, H = 150, P = { l:52, r:14, t:14, b:24 };
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
@@ -2024,13 +2034,31 @@ function lineChart(el, pts, unit, color, invert){
   });
   svg += `<line class="axis" x1="${P.l}" x2="${W - P.r}" y1="${H - P.b}" y2="${H - P.b}"/>`;
   svg += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
-  pts.forEach(p => {
-    svg += `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="4.5" fill="${color}" stroke="var(--surface)" stroke-width="2">` +
-           `<title>Day ${p.x}: ${p.y}${unit}</title></circle>` +
+  pts.forEach((p, i) => {
+    svg += `<circle class="chartpt" data-i="${i}" cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="7" fill="${color}" stroke="var(--surface)" stroke-width="2" style="cursor:pointer"/>` +
            `<text x="${X(p.x).toFixed(1)}" y="${H - 8}" text-anchor="middle">d${p.x}</text>`;
   });
-  svg += `<text x="${(X(last.x) - 8).toFixed(1)}" y="${(Y(last.y) - 9).toFixed(1)}" text-anchor="end" style="font-weight:700;fill:var(--ink)">${last.y}${unit}</text></svg>`;
-  el.innerHTML = svg;
+  svg += `<text class="chart-lastval" x="${(X(last.x) - 8).toFixed(1)}" y="${(Y(last.y) - 9).toFixed(1)}" text-anchor="end" style="font-weight:700;fill:var(--ink)">${last.y}${unit}</text></svg>`;
+  el.innerHTML = `<div class="chartwrap">${svg}<div class="chart-callout" style="display:none"></div></div>`;
+  el.querySelectorAll('.chartpt').forEach(c => {
+    c.addEventListener('click', () => {
+      const p = pts[+c.dataset.i];
+      chartPointTap(el, c, `Day ${p.x}: ${p.y}${unit}`);
+    });
+  });
+}
+/* shared tap-to-reveal-value handler for line charts and bar charts */
+function chartPointTap(el, target, label){
+  const wrap = el.querySelector('.chartwrap') || el;
+  const callout = wrap.querySelector('.chart-callout');
+  el.querySelectorAll('.chartpt, .bar').forEach(x => x.classList.remove('picked'));
+  target.classList.add('picked');
+  const wrapRect = wrap.getBoundingClientRect();
+  const tRect = target.getBoundingClientRect();
+  callout.textContent = label;
+  callout.style.display = 'block';
+  callout.style.left = (tRect.left - wrapRect.left + tRect.width / 2) + 'px';
+  callout.style.top = (tRect.top - wrapRect.top) + 'px';
 }
 
 const benchPts = [{x:1,y:10},{x:5,y:13},{x:8,y:11},{x:12,y:16}];

@@ -157,6 +157,12 @@ h2{font-size:17px;margin:0 0 4px;letter-spacing:-.01em}
 .bars .v{font-size:11px;font-weight:700}
 .bars .l{font-size:10px;color:var(--ink3)}
 .bars .grp{display:flex;gap:3px;align-items:flex-end;height:64px}
+.chartwrap{position:relative}
+.chartpt{transition:r .1s, stroke-width .1s}
+.chartpt.picked{stroke:var(--ink);stroke-width:3}
+.bar.picked{outline:2px solid var(--ink);outline-offset:1px}
+.chart-callout{position:absolute;transform:translate(-50%,-100%);margin-top:-8px;background:var(--ink);color:var(--bg);padding:5px 10px;border-radius:8px;font-size:12px;font-weight:700;white-space:nowrap;pointer-events:none;z-index:5;box-shadow:var(--shadow)}
+.chart-callout::after{content:'';position:absolute;left:50%;top:100%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--ink)}
 .ladder{display:flex;gap:6px;margin-top:10px}
 .ladder .step{flex:1;text-align:center;padding:10px 4px 8px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface)}
 .ladder .step.done{background:var(--yes-soft);border-color:var(--yes)}
