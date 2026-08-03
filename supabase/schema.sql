@@ -61,6 +61,29 @@ create table if not exists plans (
   created_at timestamptz not null default now()
 );
 
+-- simple optional poll on a regular SCHD "Plan" post — deliberately
+-- minimal compared to PLANNIT's poll: the poster sets the options once
+-- (at post time), nobody can add more, and a vote can be changed but
+-- that's it — no lock-in, no separate title.
+create table if not exists plan_poll_options (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid not null references plans(id) on delete cascade,
+  label text not null,
+  created_at timestamptz not null default now()
+);
+alter table plan_poll_options enable row level security;
+revoke all on plan_poll_options from anon, authenticated;
+
+create table if not exists plan_poll_votes (
+  plan_id uuid not null references plans(id) on delete cascade,
+  member text not null references accounts(username) on delete cascade,
+  option_id uuid not null references plan_poll_options(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (plan_id, member)
+);
+alter table plan_poll_votes enable row level security;
+revoke all on plan_poll_votes from anon, authenticated;
+
 alter table accounts enable row level security;
 alter table friend_requests enable row level security;
 alter table friendships enable row level security;
@@ -376,16 +399,18 @@ alter table plan_joins add column if not exists status text not null default 'pe
 alter table plan_joins add column if not exists has_left boolean not null default false;
 
 drop function if exists list_plans(text, text);
+drop function if exists list_plans(text,text);
 create function list_plans(p_me text, p_owner text)
 returns table (
   id uuid, owner text, day_index int, act text, color text, time_label text, note text,
   audience text, is_range boolean, tags text[], done boolean, cancelled boolean, edited boolean,
-  created_at timestamptz, join_count bigint, my_join_status text
+  created_at timestamptz, join_count bigint, my_join_status text, poll_count bigint
 ) language sql security definer as $$
   select p.id, p.owner, p.day_index, p.act, p.color, p.time_label, p.note,
     p.audience, p.is_range, p.tags, p.done, p.cancelled, p.edited, p.created_at,
     (select count(*) from plan_joins j where j.plan_id = p.id and j.status = 'accepted' and j.has_left = false) as join_count,
-    (select j.status from plan_joins j where j.plan_id = p.id and j.requester = p_me and j.has_left = false) as my_join_status
+    (select j.status from plan_joins j where j.plan_id = p.id and j.requester = p_me and j.has_left = false) as my_join_status,
+    (select count(*) from plan_poll_options o where o.plan_id = p.id) as poll_count
   from plans p
   where p.owner = p_owner
     and (
@@ -416,12 +441,13 @@ create function list_friends_feed(p_me text)
 returns table (
   id uuid, owner text, owner_display text, owner_avatar text, day_index int, act text, color text,
   time_label text, note text, audience text, is_range boolean, tags text[], cancelled boolean, edited boolean,
-  created_at timestamptz, join_count bigint, my_join_status text
+  created_at timestamptz, join_count bigint, my_join_status text, poll_count bigint
 ) language sql security definer as $$
   select p.id, p.owner, a.display_name, a.avatar, p.day_index, p.act, p.color, p.time_label, p.note,
     p.audience, p.is_range, p.tags, p.cancelled, p.edited, p.created_at,
     (select count(*) from plan_joins j where j.plan_id = p.id and j.status = 'accepted' and j.has_left = false) as join_count,
-    (select j.status from plan_joins j where j.plan_id = p.id and j.requester = p_me and j.has_left = false) as my_join_status
+    (select j.status from plan_joins j where j.plan_id = p.id and j.requester = p_me and j.has_left = false) as my_join_status,
+    (select count(*) from plan_poll_options o where o.plan_id = p.id) as poll_count
   from plans p
   join accounts a on a.username = p.owner
   where p.owner <> p_me
@@ -522,6 +548,82 @@ returns boolean language sql security definer as $$
       where j.plan_id = p_plan_id and j.requester = p_me and j.status = 'accepted' and j.has_left = false
     );
 $$;
+
+-- ---------- simple optional poll on a regular SCHD "Plan" post ----------
+-- (tables defined earlier, right after `plans`, so list_plans/
+-- list_friends_feed above can reference plan_poll_options)
+-- shared visibility check (mirrors list_plans/list_friends_feed/request_join_plan's
+-- rule): the owner always sees their own plan; a friend sees it unless the
+-- audience is "Only me" or a real circle they're not a member of.
+create or replace function can_see_plan(p_plan_id uuid, p_viewer text)
+returns boolean language sql security definer as $$
+  select exists (
+    select 1 from plans p
+    where p.id = p_plan_id
+      and (
+        p.owner = p_viewer
+        or (
+          p.audience <> 'Only me'
+          and exists (select 1 from friendships f where (f.user_a = p.owner and f.user_b = p_viewer) or (f.user_b = p.owner and f.user_a = p_viewer))
+          and (
+            not exists (select 1 from circles c where c.owner = p.owner and c.name = p.audience)
+            or exists (select 1 from circles c join circle_members cm on cm.circle_id = c.id where c.owner = p.owner and c.name = p.audience and cm.member = p_viewer)
+          )
+        )
+      )
+  );
+$$;
+
+-- owner-only, replaces the whole option set (used right when posting) —
+-- passing an empty array clears the poll entirely.
+create or replace function set_plan_poll_options(p_me text, p_plan_id uuid, p_labels text[])
+returns json language plpgsql security definer as $$
+declare v_rows int; v_label text;
+begin
+  if not exists (select 1 from plans where id = p_plan_id and owner = p_me) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  delete from plan_poll_options where plan_id = p_plan_id;
+  foreach v_label in array coalesce(p_labels, '{}') loop
+    if length(trim(v_label)) = 0 then continue; end if;
+    insert into plan_poll_options(plan_id, label) values (p_plan_id, trim(v_label));
+  end loop;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function set_plan_poll_options(text,uuid,text[]) to anon;
+
+-- p_option_id = null clears the caller's own vote
+create or replace function vote_plan_poll(p_me text, p_plan_id uuid, p_option_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  if not can_see_plan(p_plan_id, p_me) then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  if p_option_id is null then
+    delete from plan_poll_votes where plan_id = p_plan_id and member = p_me;
+    return json_build_object('ok', true);
+  end if;
+  if not exists (select 1 from plan_poll_options where id = p_option_id and plan_id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  insert into plan_poll_votes(plan_id, member, option_id) values (p_plan_id, p_me, p_option_id)
+    on conflict (plan_id, member) do update set option_id = excluded.option_id, created_at = now();
+  return json_build_object('ok', true);
+end $$;
+grant execute on function vote_plan_poll(text,uuid,uuid) to anon;
+
+create or replace function list_plan_poll(p_me text, p_plan_id uuid)
+returns table (option_id uuid, label text, vote_count bigint, my_vote boolean)
+language plpgsql security definer as $$
+begin
+  if not can_see_plan(p_plan_id, p_me) then return; end if;
+  return query
+    select o.id, o.label,
+      (select count(*) from plan_poll_votes v where v.option_id = o.id) as vote_count,
+      exists(select 1 from plan_poll_votes v where v.option_id = o.id and v.member = p_me) as my_vote
+    from plan_poll_options o
+    where o.plan_id = p_plan_id
+    order by o.created_at asc;
+end $$;
+grant execute on function list_plan_poll(text,uuid) to anon;
 
 -- request to join a friend's posted plan (blocked once it's cancelled) —
 -- creates a 'pending' join row AND sends the owner a join_request message

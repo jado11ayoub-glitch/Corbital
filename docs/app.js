@@ -957,6 +957,44 @@ function drawCompSubs(){
 }
 let editingSlot = null; /* {day, ix} while the composer is editing an existing slot, else null */
 
+/* ---- SCHD "Plan" posts: a very simple optional poll — set once at post
+   time, no adding options later, just vote/change-vote. Deliberately
+   much lighter than PLANNIT's poll. ---- */
+let composerPollOptions = [];
+function renderComposerPollOptions(){
+  const box = $('#c-poll-optlist');
+  box.innerHTML = composerPollOptions.length
+    ? composerPollOptions.map((label, i) =>
+        `<div class="frow"><div class="g"><div class="dn">${escHTML(label)}</div></div>` +
+        `<button class="btn small" onclick="removeComposerPollOption(${i})">✕</button></div>`
+      ).join('')
+    : '';
+}
+function addComposerPollOption(){
+  const input = $('#c-poll-optinput');
+  const label = input.value.trim();
+  if (!label) return;
+  composerPollOptions.push(label);
+  input.value = '';
+  renderComposerPollOptions();
+}
+$('#c-poll-optinput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addComposerPollOption(); } });
+function removeComposerPollOption(i){
+  composerPollOptions.splice(i, 1);
+  renderComposerPollOptions();
+}
+$('#c-poll-toggle').addEventListener('change', e => {
+  $('#c-poll-builder').style.display = e.target.checked ? '' : 'none';
+});
+function resetComposerPoll(showRow){
+  composerPollOptions = [];
+  renderComposerPollOptions();
+  $('#c-poll-optinput').value = '';
+  $('#c-poll-toggle').checked = false;
+  $('#c-poll-builder').style.display = 'none';
+  $('#c-poll-row').style.display = showRow ? '' : 'none';
+}
+
 function openComposer(a){
   if (selDay < TODAY_IX) { toast("Can't plan for a day that's already passed"); return; }
   editingSlot = null;
@@ -969,6 +1007,7 @@ function openComposer(a){
   $('#timerow').style.display = 'flex';
   $('#c-note').value = '';
   $('#c-aud').innerHTML = audienceButtonsHTML('Everyone');
+  resetComposerPoll(true);
   drawCompSubs();
   $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -999,6 +1038,7 @@ function openComposerForEdit(day, ix){
   }
   $('#c-note').value = s.note || '';
   $('#c-aud').innerHTML = audienceButtonsHTML(s.posted);
+  resetComposerPoll(false); /* no poll builder while editing — keep it simple */
   drawCompSubs();
   $('#composer').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -1008,6 +1048,8 @@ $('#posttype').addEventListener('click', e => {
   if (!b) return;
   $$('#posttype button').forEach(x => x.classList.toggle('on', x === b));
   $('#timerow').style.display = b.dataset.v === 'ask' ? 'none' : 'flex';
+  if (b.dataset.v !== 'plan') resetComposerPoll(false);
+  else if (!editingSlot) $('#c-poll-row').style.display = '';
 });
 
 async function postPlan(){
@@ -1039,6 +1081,9 @@ async function postPlan(){
   if (editing) {
     daySlots[editing.day][editing.ix] = rowToSlot(data);
   } else {
+    if (type === 'plan' && $('#c-poll-toggle').checked && composerPollOptions.length >= 2) {
+      await sb.rpc('set_plan_poll_options', { p_me: me.username, p_plan_id: data.id, p_labels: composerPollOptions });
+    }
     (daySlots[day] = daySlots[day] || []).push(rowToSlot(data));
     curAct.uses++;                                 /* usage count drives chip order */
     store('cb_acts', acts);
@@ -1257,6 +1302,7 @@ function renderFeedCard(p, opts){
   } else {
     actions = `<div class="actions"><button class="btn small primary" onclick="requestJoinPlan('${p.id}', this)">🙋 Request to join · <span class="count">${p.join_count}</span></button></div>`;
   }
+  const pollHtml = (p.poll_count > 0 && !p.cancelled) ? `<div class="planpoll" id="planpoll-${p.id}"><div class="sub">Loading poll…</div></div>` : '';
   return `<div class="card post" style="--c:${p.color}">` +
     `<div class="head"><div class="avatar">${p.owner_avatar || initials}</div>` +
     `<div><div class="who">${isOwn ? 'You' : p.owner_display}</div><div class="when">${when}</div></div>` +
@@ -1264,7 +1310,39 @@ function renderFeedCard(p, opts){
     `<div class="kind">${p.cancelled ? 'CANCELLED' : (p.is_range ? 'PLAN' : 'ASK')}</div>` +
     `<div class="subact">${p.note}${p.edited && !p.cancelled ? ' (edited)' : ''}${p.is_range ? ' · <span class="mono">' + p.time_label + '</span>' : ''}</div>` +
     actions +
+    pollHtml +
     `</div>`;
+}
+
+/* ---- very simple optional poll on a "Plan" post — see set_plan_poll_options
+   in schema.sql. Cards render a loading placeholder synchronously, then this
+   fills it in once the (async, per-plan) poll data comes back. ---- */
+const planPollCache = {};
+function hydratePlanPolls(rows){
+  (rows || []).forEach(p => { if (p.poll_count > 0 && !p.cancelled) loadPlanPollInto(p.id); });
+}
+async function loadPlanPollInto(planId){
+  if (!document.getElementById('planpoll-' + planId)) return;
+  const { data, error } = await sb.rpc('list_plan_poll', { p_me: me.username, p_plan_id: planId });
+  const box = document.getElementById('planpoll-' + planId);
+  if (!box) return;
+  if (error || !data || !data.length) { box.innerHTML = ''; return; }
+  planPollCache[planId] = data;
+  const total = data.reduce((s, o) => s + Number(o.vote_count), 0);
+  box.innerHTML = data.map(o => {
+    const pct = total ? Math.round((o.vote_count / total) * 100) : 0;
+    return `<div class="polloption${o.my_vote ? ' mine' : ''}" onclick="votePlanPollOption('${planId}','${o.option_id}')">` +
+      `<div class="pollbar" style="width:${pct}%"></div>` +
+      `<div class="pollrow"><span>${o.my_vote ? '✓ ' : ''}${escHTML(o.label)}</span><span class="mono">${o.vote_count}</span></div></div>`;
+  }).join('');
+}
+async function votePlanPollOption(planId, optionId){
+  const cache = planPollCache[planId] || [];
+  const mine = cache.find(o => o.my_vote);
+  const newOptionId = (mine && mine.option_id === optionId) ? null : optionId;
+  const { data, error } = await sb.rpc('vote_plan_poll', { p_me: me.username, p_plan_id: planId, p_option_id: newOptionId });
+  if (error || !data.ok) { toast('Could not vote — try again'); return; }
+  loadPlanPollInto(planId);
 }
 
 let feedFilterMode = 'all';         /* 'all' | 'schedule' | 'plannit' | 'milestone' */
@@ -1284,6 +1362,7 @@ async function loadFriendsFeed(){
   rows.sort((a, b) => b.day - a.day);
   friendsFeedCache = rows;
   drawFriendsFeed();
+  hydratePlanPolls(feedRes.data);
 }
 
 function drawFriendsFeed(){
@@ -2514,6 +2593,7 @@ function drawSearch(){
     rows.forEach(r => {
       box.insertAdjacentHTML('beforeend', r.kind === 'plannit' ? renderPlannitCard(r.raw) : renderFeedCard(r.raw, { isOwn: r.isOwn }));
     });
+    hydratePlanPolls(rows.filter(r => r.kind === 'schedule').map(r => r.raw));
     return;
   }
 

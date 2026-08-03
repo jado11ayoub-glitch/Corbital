@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v35</span>
+    <span class="pill">prototype v36</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -142,6 +142,19 @@
       <span class="sub">Who can see:</span>
       <div class="audsel single" id="c-aud">
         <button class="on">Everyone</button><button>Only me</button>
+      </div>
+    </div>
+    <div class="row" id="c-poll-row">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="c-poll-toggle" style="width:18px;height:18px">
+        <span class="sub">🗳️ Add a simple poll (optional)</span>
+      </label>
+    </div>
+    <div id="c-poll-builder" style="display:none;margin-bottom:10px">
+      <div id="c-poll-optlist" style="margin-bottom:8px"></div>
+      <div class="row" style="gap:8px">
+        <input id="c-poll-optinput" placeholder="e.g. 6pm or 8pm?" style="flex:1">
+        <button class="btn small" onclick="addComposerPollOption()">＋</button>
       </div>
     </div>
     <div class="row">
