@@ -2141,12 +2141,29 @@ $('#pln-week').addEventListener('change', refreshPlannitRangePreview);
 
 /* "Decide a plan" — vote on what to do BEFORE picking a date (creates a
    dateless range_type='poll' event, same poll used by the after-the-fact
-   "Turn this into a vote" toggle in the detail view). */
+   "Turn this into a vote" toggle in the detail view). Instead of a title,
+   you fill in option rectangles (Option 1, Option 2, …) right here. */
+let plannitVoteOptionCount = 0;
+function addPlannitVoteOptionRow(){
+  plannitVoteOptionCount++;
+  const div = document.createElement('div');
+  div.className = 'profrow';
+  div.innerHTML = `<label>Option ${plannitVoteOptionCount}</label>` +
+    `<input class="pln-vote-opt-input" placeholder="e.g. Beach day" style="width:100%">`;
+  $('#pln-vote-optlist').appendChild(div);
+}
+function resetPlannitVoteOptions(){
+  plannitVoteOptionCount = 0;
+  $('#pln-vote-optlist').innerHTML = '';
+  addPlannitVoteOptionRow();
+  addPlannitVoteOptionRow();
+}
 $('#pln-vote-now').addEventListener('change', e => {
   const voteNow = e.target.checked;
   $('#pln-range-block').style.display = voteNow ? 'none' : '';
-  $('#pln-name-label').textContent = voteNow ? 'What are we deciding?' : "What's the plan?";
-  $('#pln-name').placeholder = voteNow ? 'e.g. What should we do this weekend?' : 'e.g. Ski trip';
+  $('#pln-name-block').style.display = voteNow ? 'none' : '';
+  $('#pln-vote-options').style.display = voteNow ? '' : 'none';
+  if (voteNow) resetPlannitVoteOptions();
 });
 
 function openCreatePlannit(){
@@ -2174,14 +2191,20 @@ function togglePlannitInvitee(u, checked){
 }
 async function submitCreatePlannit(){
   const voteNow = $('#pln-vote-now').checked;
-  const name = $('#pln-name').value.trim();
-  if (!name) { toast(voteNow ? 'Give it a title first' : 'Name the plan first'); return; }
+  const voteOptions = voteNow
+    ? $$('.pln-vote-opt-input').map(el => el.value.trim()).filter(Boolean)
+    : [];
+  const name = voteNow ? 'Group vote' : $('#pln-name').value.trim();
+  if (!voteNow && !name) { toast('Name the plan first'); return; }
   const rangeType = voteNow ? 'poll' : plannitCreateRange;
   const startDay = (!voteNow && (plannitCreateRange === 'week' || plannitCreateRange === 'twoweek')) ? +$('#pln-week').value : TODAY_IX;
   const { data, error } = await sb.rpc('create_plannit_event', {
     p_me: me.username, p_name: name, p_start_day: startDay, p_range_type: rangeType, p_is_tbd: false, p_invitees: [...plannitCreateInvitees],
   });
   if (error || !data.ok) { toast('Could not create — try again'); return; }
+  for (const label of voteOptions) {
+    await sb.rpc('add_plannit_poll_option', { p_me: me.username, p_event_id: data.id, p_label: label });
+  }
   closeSheets();
   await loadPlannitFeed();
   toast(plannitCreateInvitees.size ? `Created — invited ${plannitCreateInvitees.size} ✉️` : 'Created ✓');

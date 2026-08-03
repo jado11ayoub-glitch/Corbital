@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v37</span>
+    <span class="pill">prototype v38</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -398,12 +398,18 @@
 <div class="sheet" id="sheet-newplannit" role="dialog" aria-label="New plan">
   <div class="handle"></div>
   <h3>🗓️ New plan</h3>
-  <div class="profrow"><label for="pln-name" id="pln-name-label">What's the plan?</label>
+  <div class="profrow" id="pln-name-block"><label for="pln-name">What's the plan?</label>
     <input id="pln-name" placeholder="e.g. Ski trip" style="width:100%"></div>
   <label class="profrow" id="pln-vote-now-row" style="display:flex;align-items:center;gap:8px;cursor:pointer">
     <input type="checkbox" id="pln-vote-now" style="width:18px;height:18px">
     <span>🗳️ Decide a plan — vote on what to do first, figure out the date after</span>
   </label>
+  <div id="pln-vote-options" style="display:none">
+    <div class="profrow"><label>Options</label>
+      <div id="pln-vote-optlist"></div>
+      <button class="btn small" style="margin-top:4px" onclick="addPlannitVoteOptionRow()">＋ Add option</button>
+    </div>
+  </div>
   <div id="pln-range-block">
     <div class="profrow"><label>Range</label>
       <div class="seg" id="pln-range">
