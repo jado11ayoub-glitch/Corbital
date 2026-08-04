@@ -111,6 +111,15 @@
     <div class="termsgrid" id="termsgrid"></div>
   </div>
 
+  <div class="card" id="timetable-card">
+    <div class="sectionhead">
+      <h2>Weekly timetable</h2>
+      <select id="tt-term" onchange="renderTimetable()"></select>
+    </div>
+    <div class="sub" id="tt-empty"></div>
+    <div class="tt-wrap"><div id="tt-grid"></div></div>
+  </div>
+
 </section>
 
 </main>
@@ -142,8 +151,34 @@
     <label class="field" style="flex:1"><span>Grade <span class="optional">optional</span></span>
       <input id="cm-grade" placeholder="e.g. A-" maxlength="6"></label>
   </div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>Section <span class="optional">optional</span></span>
+      <input id="cm-section" placeholder="e.g. Section B" maxlength="40"></label>
+  </div>
   <label class="field"><span>Notes <span class="optional">optional</span></span>
-    <input id="cm-notes" placeholder="Prereqs, section, anything else" maxlength="200"></label>
+    <input id="cm-notes" placeholder="Prereqs, anything else" maxlength="200"></label>
+
+  <div class="field" id="cm-meetings-block">
+    <span>Weekly meetings</span>
+    <div class="sub" id="cm-meetings-hint">Save the course first, then add its lecture / tutorial / lab times.</div>
+    <div id="cm-meetings-list"></div>
+    <div class="meetingform" id="cm-meeting-form" hidden>
+      <select id="mt-component">
+        <option>Lecture</option><option>Tutorial</option><option>Laboratory</option>
+        <option>Blended Online and Classroom</option><option>Seminar</option>
+      </select>
+      <select id="mt-day">
+        <option value="0">Mon</option><option value="1">Tue</option><option value="2">Wed</option>
+        <option value="3">Thu</option><option value="4">Fri</option>
+        <option value="5">Sat</option><option value="6">Sun</option>
+      </select>
+      <input id="mt-start" type="time" step="300" value="09:30">
+      <input id="mt-end" type="time" step="300" value="10:30">
+      <input id="mt-loc" placeholder="Room — e.g. Keele: LAS C" maxlength="60">
+      <button class="btn primary small" onclick="submitMeeting()">Add meeting</button>
+    </div>
+  </div>
+
   <div class="row" style="gap:8px;margin-top:6px">
     <button class="btn primary wide" onclick="submitCourse()">Save course</button>
     <button class="btn wide" onclick="closeModal()">Cancel</button>
