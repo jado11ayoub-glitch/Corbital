@@ -4,7 +4,7 @@
 --
 -- Run this ONCE in the Supabase SQL Editor, AFTER schema.sql. It prints
 -- the new plan's id at the end — open the planner at
---   /academic-planner/?plan=<that id>
+--   /Corbital/academic-planner/?plan=<that id>
 --
 -- WHAT IS AND ISN'T VERIFIED
 --  - Year 1 (both terms): taken directly from the student's own York
@@ -233,7 +233,7 @@ end $$;
 -- the id to open the planner with
 select id as plan_id,
        title,
-       '/academic-planner/?plan=' || id as open_at
+       '/Corbital/academic-planner/?plan=' || id as open_at
 from academic_plans
 order by created_at desc
 limit 1;

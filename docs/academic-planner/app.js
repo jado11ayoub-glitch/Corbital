@@ -78,11 +78,25 @@ function goHome(){
   showLanding();
 }
 
+/* A missing RPC means schema.sql hasn't been run yet — a completely
+   different problem from a bad plan link, and worth saying plainly
+   instead of letting it surface as "that link doesn't work". */
+function isBackendMissing(error){
+  if (!error) return false;
+  const blob = [error.code, error.message, error.details, error.hint].filter(Boolean).join(' ');
+  return error.code === 'PGRST202' || /could not find the function|schema cache|does not exist|404/i.test(blob);
+}
+function showSetupNote(){
+  const n = $('#setup-note');
+  if (n) n.hidden = false;
+}
+
 function createPlan(){
   const title = $('#new-title').value.trim() || 'My four-year plan';
   const major = $('#new-major').value.trim();
   const credits = Number($('#new-credits').value) || 120;
   sb.rpc('create_academic_plan', { p_title: title, p_major: major }).then(({ data, error }) => {
+    if (isBackendMissing(error)) { showSetupNote(); toast('Database isn’t set up yet — see the setup note'); return; }
     if (error || !data || !data.ok) { toast('Could not create plan — try again'); return; }
     const id = data.id;
     // set the credits-required figure the user picked before landing on it
@@ -105,6 +119,12 @@ function openPlan(id){
 
 function loadPlan(id){
   sb.rpc('get_academic_plan', { p_plan_id: id }).then(({ data, error }) => {
+    if (isBackendMissing(error)) {
+      goHome();
+      showSetupNote();
+      toast('Database isn’t set up yet — see the setup note');
+      return;
+    }
     if (error || !data || !data.ok) {
       toast('That plan link doesn’t work anymore');
       goHome();

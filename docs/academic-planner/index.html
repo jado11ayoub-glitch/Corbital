@@ -24,6 +24,18 @@
     <p class="sub">Lay out every semester, log courses against your degree requirements, and watch your credit progress fill in. No account needed — a private link is your key to this plan, so save it or bookmark it.</p>
   </div>
 
+  <div class="card setupnote" id="setup-note" hidden>
+    <h2>⚙️ One setup step left</h2>
+    <p class="sub">The planner's database tables aren't created yet, so nothing can be saved. This is a one-time step in Supabase.</p>
+    <ol class="setupsteps">
+      <li>Open your project's <b>SQL Editor</b> → <b>New query</b>.</li>
+      <li>Paste in all of <code>supabase/schema.sql</code> from the repo and press <b>Run</b>.</li>
+      <li>Then paste in <code>supabase/seed-york-civil-eng.sql</code> and press <b>Run</b>. It prints a plan ID.</li>
+      <li>Open <code>?plan=&lt;that ID&gt;</code> — or just create a new plan below.</li>
+    </ol>
+    <p class="sub">Until then, creating or opening a plan will keep failing.</p>
+  </div>
+
   <div class="grid2">
     <div class="card">
       <h2>Start a new plan</h2>
