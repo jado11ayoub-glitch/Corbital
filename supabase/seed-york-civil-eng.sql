@@ -11,10 +11,11 @@
 --    timetable screenshots — courses, sections, components, rooms and
 --    meeting times. Times were transcribed by eye from a 30-minute grid,
 --    so spot-check the odd start/end against the official timetable.
---  - Years 2-4: course lists come from York's 2022-2023 Undergraduate
---    Calendar entry for Civil Engineering. The calendar groups courses by
---    year, and that grouping is preserved here; the split of each year
---    across Fall/Winter is NOT published there and is a balanced guess.
+--  - Years 2-4: course lists, term placement AND prerequisites come from
+--    Lassonde's published Civil Engineering course sequence, cross-checked
+--    against the 2022-2023 Undergraduate Calendar. Two conflicts the
+--    sources do not resolve are flagged in the relevant course's notes
+--    (CIVL 2220's prereq vs its term, and CIVL 3230's credit value).
 --    Requirements also change between calendar years (e.g. CIVL 4005 was
 --    added to the Group A technical electives for FW25/26). Treat years
 --    2-4 as a starting scaffold to confirm with Lassonde advising, not
@@ -35,7 +36,7 @@ begin
     'BEng Civil Engineering — York (Lassonde)',
     'Civil Engineering (entering via General Engineering first year)',
     140,
-    '["Year 1 – Fall (F)","Year 1 – Winter (W)","Year 2 – Fall","Year 2 – Winter","Year 3 – Fall","Year 3 – Winter","Year 4 – Fall","Year 4 – Winter"]'::jsonb
+    '["Year 1 – Fall (F)","Year 1 – Winter (W)","Year 2 – Fall","Year 2 – Winter","Year 2 – Summer","Year 3 – Fall","Year 3 – Winter","Year 4 – Fall","Year 4 – Winter"]'::jsonb
   ) returning id into v_plan;
 
   -- ---------- requirement categories ----------
@@ -161,63 +162,70 @@ begin
     (c, 'Lecture', 2, 960, 1050, 'Keele: ACW 109');
 
   -- =========================================================
-  -- YEARS 2-4 — scaffold from the 2022-23 calendar (VERIFY)
-  -- No meeting times: those only exist once you enrol.
+  -- YEARS 2-4 — course list AND Fall/Winter placement now taken from
+  -- Lassonde's published Civil Engineering course sequence, not guessed.
+  -- Prerequisites are recorded in the notes so the ordering is auditable.
+  -- Still verify against the current calendar before relying on it.
   -- =========================================================
 
   -- Year 2 Fall
-  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, sort_order) values
-    (v_plan, 2, 'SC/MATH 2015 3.00', 'Applied Multivariate & Vector Calculus', 3, r_core, 'planned', 0),
-    (v_plan, 2, 'SC/MATH 2271 3.00', 'Differential Equations for Engineers',    3, r_civ2, 'planned', 1),
-    (v_plan, 2, 'LE/ENG 2001 3.00',  'LE/ENG 2001',                             3, r_core, 'planned', 2),
-    (v_plan, 2, 'LE/CIVL 2000 3.00', 'LE/CIVL 2000',                            3, r_civ2, 'planned', 3),
-    (v_plan, 2, 'LE/CIVL 2210 4.00', 'LE/CIVL 2210',                            4, r_civ2, 'planned', 4),
-    (v_plan, 2, 'Complementary Studies I',  'Humanities / social science elective', 3, r_comp, 'planned', 5);
+  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
+    (v_plan, 2, 'SC/MATH 2015 3.00', 'Applied Multivariate & Vector Calculus', 3, r_core, 'planned', '', 0),
+    (v_plan, 2, 'SC/MATH 2271 3.00', 'Differential Equations for Engineers',    3, r_civ2, 'planned', '', 1),
+    (v_plan, 2, 'LE/ENG 2001 3.00',  'LE/ENG 2001',                             3, r_core, 'planned', '', 2),
+    (v_plan, 2, 'LE/CIVL 2120 3.00', 'Civil Engineering Materials',             3, r_civ2, 'planned', 'Prereq: SC/CHEM 1100', 3),
+    (v_plan, 2, 'LE/CIVL 2150 3.00', 'Civil Engineering Graphics and CAD',      3, r_civ2, 'planned', 'Prereq: LE/ENG 1102', 4),
+    (v_plan, 2, 'LE/CIVL 2160 3.00', 'LE/CIVL 2160',                            3, r_civ2, 'planned', 'Prereq for CIVL 3110, but not in Lassonde''s current course listing — confirm it still runs', 5);
 
   -- Year 2 Winter
-  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, sort_order) values
-    (v_plan, 3, 'SC/MATH 2930 3.00', 'Applied Statistics for Engineers', 3, r_core, 'planned', 0),
-    (v_plan, 3, 'LE/ENG 2003 3.00',  'LE/ENG 2003',                      3, r_core, 'planned', 1),
-    (v_plan, 3, 'LE/CIVL 2220 4.00', 'LE/CIVL 2220',                     4, r_civ2, 'planned', 2),
-    (v_plan, 3, 'LE/CIVL 2120 3.00', 'LE/CIVL 2120',                     3, r_civ2, 'planned', 3),
-    (v_plan, 3, 'LE/CIVL 2150 3.00', 'LE/CIVL 2150',                     3, r_civ2, 'planned', 4),
-    (v_plan, 3, 'LE/ESSE 2635 3.00', 'LE/ESSE 2635',                     3, r_civ2, 'planned', 5);
-
-  -- Year 3 Fall (carries the remaining year-2-listed courses)
   insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
-    (v_plan, 4, 'LE/CIVL 2160 3.00', 'LE/CIVL 2160', 3, r_civ2, 'planned', 'Calendar lists this as a year-2 course', 0),
-    (v_plan, 4, 'LE/CIVL 2240 3.00', 'LE/CIVL 2240', 3, r_civ2, 'planned', 'Calendar lists this as a year-2 course', 1),
-    (v_plan, 4, 'EU/ENVS 2150 3.00', 'EU/ENVS 2150 — or LE/ESSE 2210 3.00', 3, r_core, 'planned', 'Either/or requirement', 2),
-    (v_plan, 4, 'LE/CIVL 3110 3.00', 'LE/CIVL 3110', 3, r_civ3, 'planned', '', 3),
-    (v_plan, 4, 'LE/CIVL 3120 4.00', 'LE/CIVL 3120', 4, r_civ3, 'planned', '', 4),
-    (v_plan, 4, 'LE/CIVL 3140 3.00', 'LE/CIVL 3140', 3, r_civ3, 'planned', '', 5);
+    (v_plan, 3, 'SC/MATH 2930 3.00', 'Applied Statistics for Engineers',        3, r_core, 'planned', '', 0),
+    (v_plan, 3, 'LE/ENG 2003 3.00',  'LE/ENG 2003',                             3, r_core, 'planned', 'Co-req of CIVL 2000', 1),
+    (v_plan, 3, 'LE/CIVL 2210 4.00', 'Fluid Mechanics',                         4, r_civ2, 'planned', 'Prereq: MATH 1014, PHYS 1800, CIVL 2120', 2),
+    (v_plan, 3, 'LE/CIVL 2220 4.00', 'Mechanics of Materials',                  4, r_civ2, 'planned', 'Prereq: CIVL 2210 + PHYS 1800 — but Lassonde schedules 2210 in this same term; confirm whether 2210 is really a co-requisite', 3),
+    (v_plan, 3, 'LE/CIVL 2240 3.00', 'Introduction to Environmental Engineering', 3, r_civ2, 'planned', 'Prereq: LE/ESSE 1012, SC/CHEM 1100', 4),
+    (v_plan, 3, 'LE/CIVL 2000 3.00', 'Civil Engineering Design Project',        3, r_civ2, 'planned', 'Prereq: ENG 2001, CIVL 2150. Co-req: ENG 2003', 5);
+
+  -- Year 2 Summer — ESSE 2635 is offered in summer, and CIVL 3160 in
+  -- Y3 Fall depends on it, so skipping this term pushes 3160 (and 3260
+  -- behind it) back a year.
+  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
+    (v_plan, 4, 'LE/ESSE 2635 3.00', 'Land Surveying for Civil Engineers', 3, r_civ2, 'planned', 'Summer offering. Prereq: ESSE 1012, MATH 2930, CIVL 2150. Gates CIVL 3160.', 0);
+
+  -- Year 3 Fall
+  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
+    (v_plan, 5, 'EU/ENVS 2150 3.00', 'EU/ENVS 2150 — or LE/ESSE 2210 3.00', 3, r_core, 'planned', 'Either/or requirement. Gates CIVL 4210.', 0),
+    (v_plan, 5, 'LE/CIVL 3110 3.00', 'Soil Mechanics',                      3, r_civ3, 'planned', 'Prereq: CIVL 2160, 2210, 2220', 1),
+    (v_plan, 5, 'LE/CIVL 3120 4.00', 'Hydraulics',                          4, r_civ3, 'planned', 'Prereq: CIVL 2210', 2),
+    (v_plan, 5, 'LE/CIVL 3130 4.00', 'Structural Analysis',                 4, r_civ3, 'planned', 'Prereq: CIVL 2220', 3),
+    (v_plan, 5, 'LE/CIVL 3140 3.00', 'Civil Engineering Computational Methods', 3, r_civ3, 'planned', '', 4),
+    (v_plan, 5, 'LE/CIVL 3160 3.00', 'Transportation Engineering',          3, r_civ3, 'planned', 'Prereq: ESSE 2635, MATH 2930', 5);
 
   -- Year 3 Winter
-  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, sort_order) values
-    (v_plan, 5, 'LE/ENG 3000 3.00',  'LE/ENG 3000',  3, r_core, 'planned', 0),
-    (v_plan, 5, 'LE/CIVL 3130 4.00', 'LE/CIVL 3130', 4, r_civ3, 'planned', 1),
-    (v_plan, 5, 'LE/CIVL 3160 3.00', 'LE/CIVL 3160', 3, r_civ3, 'planned', 2),
-    (v_plan, 5, 'LE/CIVL 3210 3.00', 'LE/CIVL 3210', 3, r_civ3, 'planned', 3),
-    (v_plan, 5, 'LE/CIVL 3220 3.00', 'LE/CIVL 3220', 3, r_civ3, 'planned', 4),
-    (v_plan, 5, 'Complementary Studies II', 'Humanities / social science elective', 3, r_comp, 'planned', 5);
-
-  -- Year 4 Fall (carries the remaining year-3-listed courses + capstone)
   insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
-    (v_plan, 6, 'LE/CIVL 3230 4.00', 'LE/CIVL 3230', 4, r_civ3, 'planned', 'Calendar lists this as a year-3 course', 0),
-    (v_plan, 6, 'LE/CIVL 3240 3.00', 'LE/CIVL 3240', 3, r_civ3, 'planned', 'Calendar lists this as a year-3 course', 1),
-    (v_plan, 6, 'LE/CIVL 3260 3.00', 'LE/CIVL 3260', 3, r_civ3, 'planned', 'Calendar lists this as a year-3 course', 2),
-    (v_plan, 6, 'LE/CIVL 4000 6.00', 'Capstone Design Project', 6, r_civ4, 'planned', 'Usually runs across both terms', 3),
-    (v_plan, 6, 'LE/CIVL 4110 3.00', 'LE/CIVL 4110', 3, r_civ4, 'planned', '', 4);
+    (v_plan, 6, 'LE/ENG 3000 3.00',  'LE/ENG 3000',                            3, r_core, 'planned', 'Gates CIVL 4110', 0),
+    (v_plan, 6, 'LE/CIVL 3210 3.00', 'Geotechnical Engineering',               3, r_civ3, 'planned', 'Prereq: CIVL 3110', 1),
+    (v_plan, 6, 'LE/CIVL 3220 3.00', 'Hydrology',                              3, r_civ3, 'planned', 'Prereq: MATH 2930, CIVL 2210', 2),
+    (v_plan, 6, 'LE/CIVL 3230 4.00', 'Introduction to Structural Design',      4, r_civ3, 'planned', 'Prereq: CIVL 2120, CIVL 3130. Listed as 3.00 on the Lassonde page and 4.00 in the calendar — confirm.', 3),
+    (v_plan, 6, 'LE/CIVL 3240 3.00', 'Sanitary and Environmental Engineering', 3, r_civ3, 'planned', 'Prereq: CIVL 2240, CIVL 3120', 4),
+    (v_plan, 6, 'LE/CIVL 3260 3.00', 'Transportation Planning and Evaluation', 3, r_civ3, 'planned', 'Prereq: ENG 2001, CIVL 3160', 5);
 
-  -- Year 4 Winter — technical electives: 4 courses, max 3 from any one group
+  -- Year 4 Fall — capstone runs across both terms
   insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
-    (v_plan, 7, 'LE/CIVL 4210 3.00', 'LE/CIVL 4210', 3, r_civ4, 'planned', '', 0),
-    (v_plan, 7, 'Technical Elective 1', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 1),
-    (v_plan, 7, 'Technical Elective 2', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 2),
-    (v_plan, 7, 'Technical Elective 3', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 3),
-    (v_plan, 7, 'Technical Elective 4', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 4),
-    (v_plan, 7, 'Complementary Studies III', 'Humanities / social science elective', 3, r_comp, 'planned', '', 5),
-    (v_plan, 7, 'Complementary Studies IV',  'Humanities / social science elective', 3, r_comp, 'planned', '', 6);
+    (v_plan, 7, 'LE/CIVL 4000 6.00', 'Civil Engineering Capstone Design Project', 6, r_civ4, 'planned', 'Runs Fall + Winter. Prereq: all 2000- and 3000-level courses.', 0),
+    (v_plan, 7, 'LE/CIVL 4110 3.00', 'Project Engineering and Management',       3, r_civ4, 'planned', 'Prereq: ENG 2001, ENG 3000. Gates CIVL 4210.', 1),
+    (v_plan, 7, 'Technical Elective 1', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 2),
+    (v_plan, 7, 'Technical Elective 2', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 3),
+    (v_plan, 7, 'Complementary Studies I', 'Humanities / social science elective', 3, r_comp, 'planned', '', 4);
+
+  -- Year 4 Winter
+  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, notes, sort_order) values
+    (v_plan, 8, 'LE/CIVL 4210 3.00', 'Civil Engineering for a Sustainable Future', 3, r_civ4, 'planned', 'Prereq: ENVS 2150 or ESSE 2210, and CIVL 4110', 0),
+    (v_plan, 8, 'Technical Elective 3', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 1),
+    (v_plan, 8, 'Technical Elective 4', 'Group A Structures / B Geotech / C Hydro / D Transport / E Environmental', 3, r_tech, 'planned', 'Max 3 of your 4 from any one group', 2),
+    (v_plan, 8, 'Complementary Studies II',  'Humanities / social science elective', 3, r_comp, 'planned', '', 3),
+    (v_plan, 8, 'Complementary Studies III', 'Humanities / social science elective', 3, r_comp, 'planned', '', 4),
+    (v_plan, 8, 'Complementary Studies IV',  'Humanities / social science elective', 3, r_comp, 'planned', '', 5);
 
   raise notice 'Academic plan created: %', v_plan;
 end $$;

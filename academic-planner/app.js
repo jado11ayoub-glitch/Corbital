@@ -145,6 +145,7 @@ function renderPlanner(){
   renderTimetableTermOptions();
   renderTimetable();
   renderGaps();
+  renderPrereqs();
   renderMarksTermOptions();
   renderMarks();
 }
@@ -607,6 +608,114 @@ function renderTimetable(){
       <div class="tt-gutterbody" style="height:${height}px">${hoursHTML}</div></div>
     ${colsHTML}
   </div>`;
+}
+
+/* ---------- prerequisite chains ----------
+   Reference data about York's Civil Engineering curriculum, not the
+   student's own data, so it lives here rather than in the database —
+   one edit updates it for every plan. Sourced from Lassonde's published
+   undergraduate CIVL course listing. Keys are matched loosely against a
+   course's code, so "SC/CHEM 1100 4.00" matches the key "CHEM 1100". */
+const CIVL_PREREQS = {
+  'CIVL 2120': ['CHEM 1100'],
+  'CIVL 2150': ['ENG 1102'],
+  'CIVL 2210': ['MATH 1014', 'PHYS 1800', 'CIVL 2120'],
+  'CIVL 2220': ['CIVL 2210', 'PHYS 1800'],
+  'CIVL 2240': ['ESSE 1012', 'CHEM 1100'],
+  'CIVL 2000': ['ENG 2001', 'CIVL 2150'],
+  'ESSE 2635': ['ESSE 1012', 'MATH 2930', 'CIVL 2150'],
+  'CIVL 3110': ['CIVL 2160', 'CIVL 2210', 'CIVL 2220'],
+  'CIVL 3120': ['CIVL 2210'],
+  'CIVL 3130': ['CIVL 2220'],
+  'CIVL 3160': ['ESSE 2635', 'MATH 2930'],
+  'CIVL 3210': ['CIVL 3110'],
+  'CIVL 3220': ['MATH 2930', 'CIVL 2210'],
+  'CIVL 3230': ['CIVL 2120', 'CIVL 3130'],
+  'CIVL 3240': ['CIVL 2240', 'CIVL 3120'],
+  'CIVL 3260': ['ENG 2001', 'CIVL 3160'],
+  'CIVL 4110': ['ENG 2001', 'ENG 3000'],
+  'CIVL 4210': ['ENVS 2150', 'CIVL 4110']
+};
+
+/* pull the bare "DEPT NNNN" out of a code like "SC/CHEM 1100 4.00" */
+function bareCode(code){
+  const m = /([A-Z]{3,4})\s*(\d{4})/.exec(String(code || '').toUpperCase());
+  return m ? `${m[1]} ${m[2]}` : null;
+}
+function courseByBareCode(bare){
+  return state.courses.find(c => bareCode(c.code) === bare);
+}
+
+/* everything a given course directly unlocks, then transitively */
+function unlockedBy(bare, seen){
+  seen = seen || new Set();
+  const direct = Object.keys(CIVL_PREREQS).filter(k => CIVL_PREREQS[k].includes(bare));
+  direct.forEach(d => {
+    if (!seen.has(d)){ seen.add(d); unlockedBy(d, seen); }
+  });
+  return { direct, all: seen };
+}
+
+function renderPrereqs(){
+  const wrap = $('#prereq-list');
+  const summary = $('#prereq-summary');
+
+  // only first-year courses that actually gate something downstream
+  const gates = state.courses
+    .filter(c => c.term_index <= 1)
+    .map(c => ({ course: c, bare: bareCode(c.code) }))
+    .filter(x => x.bare)
+    .map(x => Object.assign(x, unlockedBy(x.bare)))
+    .filter(x => x.direct.length)
+    .sort((a,b) => b.all.size - a.all.size || a.bare.localeCompare(b.bare));
+
+  if (!gates.length){
+    wrap.innerHTML = '<div class="sub" style="margin-top:10px">None of this plan’s first-year courses appear in the Civil Engineering prerequisite chains.</div>';
+    summary.textContent = '';
+    return;
+  }
+  summary.textContent = `${gates.length} first-year courses gate later ones`;
+
+  wrap.innerHTML = gates.map(g => {
+    const inPlan = b => {
+      const c = courseByBareCode(b);
+      return c ? `<span class="pq-chip" title="${escHTML((state.plan.terms||[])[c.term_index] || '')}">${escHTML(b)}</span>`
+               : `<span class="pq-chip missing" title="not in this plan">${escHTML(b)}</span>`;
+    };
+    const downstream = [...g.all].sort();
+    return `
+      <div class="pqrow">
+        <div class="pq-head">
+          <span class="pq-src">${escHTML(g.course.code || g.bare)}</span>
+          <span class="pq-title">${escHTML(g.course.title)}</span>
+          <span class="pq-count">${g.all.size} course${g.all.size>1?'s':''} downstream</span>
+        </div>
+        <div class="pq-body">
+          <div class="pq-line"><span class="pq-label">unlocks directly</span>${g.direct.sort().map(inPlan).join('')}</div>
+          ${downstream.length > g.direct.length
+            ? `<div class="pq-line"><span class="pq-label">and eventually</span>${downstream.filter(d => !g.direct.includes(d)).map(inPlan).join('')}</div>`
+            : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  // ordering conflicts: a prereq sitting in the same term as, or later
+  // than, the course that needs it
+  const problems = [];
+  Object.keys(CIVL_PREREQS).forEach(k => {
+    const c = courseByBareCode(k);
+    if (!c) return;
+    CIVL_PREREQS[k].forEach(p => {
+      const pc = courseByBareCode(p);
+      if (pc && pc.term_index >= c.term_index){
+        problems.push(`<b>${escHTML(k)}</b> needs ${escHTML(p)}, but it's scheduled ${pc.term_index === c.term_index ? 'in the same term' : 'later'}`);
+      }
+    });
+  });
+  if (problems.length){
+    wrap.insertAdjacentHTML('afterbegin',
+      `<div class="pq-warn"><b>Ordering to check with advising:</b><ul>${problems.map(p => `<li>${p}</li>`).join('')}</ul></div>`);
+  }
 }
 
 /* ---------- study blocks ----------
