@@ -111,13 +111,53 @@
     <div class="termsgrid" id="termsgrid"></div>
   </div>
 
+  <div class="card" id="marks-card">
+    <div class="sectionhead">
+      <h2>Marks &amp; standing</h2>
+      <select id="mk-term" onchange="renderMarks()"></select>
+    </div>
+
+    <div class="gparow">
+      <div class="gpabox">
+        <div class="gpalabel">Term GPA</div>
+        <div class="gpaval" id="gpa-term">—</div>
+        <div class="gpasub" id="gpa-term-sub">no marks yet</div>
+      </div>
+      <div class="gpabox">
+        <div class="gpalabel">Cumulative GPA</div>
+        <div class="gpaval" id="gpa-cum">—</div>
+        <div class="gpasub" id="gpa-cum-sub">York 9-point scale</div>
+      </div>
+      <div class="gpabox" id="gpa-minbox">
+        <div class="gpalabel">Graduation minimum</div>
+        <div class="gpaval">5.00</div>
+        <div class="gpasub" id="gpa-min-sub">C+ cumulative, Civil Eng</div>
+      </div>
+    </div>
+
+    <div class="sub" id="mk-empty"></div>
+    <div class="ringgrid" id="ringgrid"></div>
+  </div>
+
   <div class="card" id="timetable-card">
     <div class="sectionhead">
       <h2>Weekly timetable</h2>
-      <select id="tt-term" onchange="renderTimetable()"></select>
+      <div class="row" style="gap:8px">
+        <button class="btn small" onclick="openExportModal()">📅 Export to calendar</button>
+        <select id="tt-term" onchange="renderTimetable(); renderGaps();"></select>
+      </div>
     </div>
     <div class="sub" id="tt-empty"></div>
     <div class="tt-wrap"><div id="tt-grid"></div></div>
+  </div>
+
+  <div class="card" id="gaps-card">
+    <div class="sectionhead">
+      <h2>Study blocks</h2>
+      <span class="sub" id="gaps-summary"></span>
+    </div>
+    <div class="sub">Gaps of 45 minutes or more between your classes — the time you're already on campus with nothing scheduled.</div>
+    <div id="gaps-list"></div>
   </div>
 
 </section>
@@ -127,7 +167,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- course add/edit modal -->
-<div class="scrim" id="scrim" onclick="closeModal()"></div>
+<div class="scrim" id="scrim" onclick="closeAnyModal()"></div>
 <div class="modal" id="course-modal" role="dialog" aria-label="Course">
   <h3 id="cm-title">Add course</h3>
   <label class="field"><span>Course code <span class="optional">optional</span></span>
@@ -184,6 +224,59 @@
     <button class="btn wide" onclick="closeModal()">Cancel</button>
   </div>
   <button class="btn danger wide" id="cm-delete" style="margin-top:8px" onclick="deleteCourseFromModal()" hidden>🗑️ Delete course</button>
+</div>
+
+<!-- calendar export -->
+<div class="modal" id="export-modal" role="dialog" aria-label="Export to calendar">
+  <h3>📅 Export to calendar</h3>
+  <div class="sub" id="ex-termname"></div>
+  <div class="sub" style="margin:8px 0 12px">Downloads a <b>.ics</b> file with every class in this term as a weekly repeating event, room included. Import it once into Google Calendar, Apple Calendar or Outlook.</div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>First day of classes</span>
+      <input id="ex-start" type="date"></label>
+    <label class="field" style="flex:1"><span>Last day of classes</span>
+      <input id="ex-end" type="date"></label>
+  </div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>Reading week starts <span class="optional">optional</span></span>
+      <input id="ex-skip-start" type="date"></label>
+    <label class="field" style="flex:1"><span>Reading week ends <span class="optional">optional</span></span>
+      <input id="ex-skip-end" type="date"></label>
+  </div>
+  <div class="sub" id="ex-preset"></div>
+  <div class="row" style="gap:8px;margin-top:12px">
+    <button class="btn primary wide" onclick="downloadICS()">Download .ics</button>
+    <button class="btn wide" onclick="closeAnyModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- marks / assessments for one course -->
+<div class="modal wide" id="marks-modal" role="dialog" aria-label="Course marks">
+  <h3 id="mm-title">Marks</h3>
+  <div class="sub" id="mm-standing"></div>
+
+  <div class="mm-bars">
+    <div class="mm-barrow"><span>Graded so far</span><div class="mm-bar"><div id="mm-bar-graded"></div></div><b id="mm-graded-pct">0%</b></div>
+    <div class="mm-barrow"><span>Standing on graded</span><div class="mm-bar"><div id="mm-bar-standing"></div></div><b id="mm-standing-pct">—</b></div>
+  </div>
+
+  <div id="mm-list" class="mm-list"></div>
+
+  <div class="mm-form">
+    <input id="as-name" placeholder="Name — e.g. Midterm 1" maxlength="60">
+    <select id="as-kind">
+      <option>Test</option><option>Midterm</option><option>Final exam</option>
+      <option>Assignment</option><option>Lab</option><option>Quiz</option><option>Project</option>
+    </select>
+    <input id="as-weight" type="number" min="0" max="100" step="0.5" placeholder="Weight %">
+    <input id="as-score" type="number" min="0" step="0.5" placeholder="Score">
+    <input id="as-max" type="number" min="0.5" step="0.5" placeholder="Out of" value="100">
+    <input id="as-due" type="date">
+    <button class="btn primary small" onclick="submitAssessment()">Add</button>
+  </div>
+  <div class="sub">Leave <b>Score</b> empty for work that hasn't been graded yet — it'll count toward the course total but not drag your standing down.</div>
+
+  <button class="btn wide" style="margin-top:14px" onclick="closeMarksModal()">Done</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>

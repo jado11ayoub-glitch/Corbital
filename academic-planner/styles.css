@@ -107,6 +107,58 @@ main{max-width:1100px;margin:0 auto;padding:18px 16px 60px}
 
 .cc-section{font-size:11.5px;color:var(--ink2);margin-top:1px}
 
+/* ---------- marks, rings and GPA ---------- */
+#marks-card .sectionhead select{padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);color:var(--ink);font-weight:600;max-width:60%}
+.gparow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0 4px}
+@media (max-width:620px){.gparow{grid-template-columns:1fr}}
+.gpabox{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.gpalabel{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2)}
+.gpaval{font-size:28px;font-weight:800;line-height:1.1;margin:2px 0}
+.gpasub{font-size:12px;color:var(--ink2)}
+#gpa-minbox.above{border-color:var(--good)}
+#gpa-minbox.above .gpasub{color:var(--good);font-weight:700}
+#gpa-minbox.below{border-color:var(--danger)}
+#gpa-minbox.below .gpasub{color:var(--danger);font-weight:700}
+
+.ringgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:10px;margin-top:12px}
+.ringcard{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface2);cursor:pointer}
+.ringcard:hover{border-color:var(--accent)}
+.ring{width:76px;height:76px;flex:none}
+.ringpct{font-size:17px;font-weight:800;fill:var(--ink);text-anchor:middle}
+.ringletter{font-size:9px;font-weight:700;fill:var(--ink2);text-anchor:middle}
+.ringmeta{min-width:0;flex:1}
+.ringcode{font-size:11.5px;font-weight:700;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ringname{font-size:13.5px;font-weight:700;margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ringstat{font-size:11.5px;color:var(--ink2)}
+.spark{width:88px;height:22px;margin-top:4px;display:block}
+
+/* ---------- marks modal ---------- */
+.modal.wide{width:min(600px,94vw)}
+.mm-bars{margin:12px 0}
+.mm-barrow{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:12.5px}
+.mm-barrow span{width:135px;flex:none;color:var(--ink2)}
+.mm-barrow b{width:52px;flex:none;text-align:right}
+.mm-bar{flex:1;height:9px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.mm-bar div{height:100%;border-radius:999px;background:var(--accent);transition:width .3s}
+#mm-bar-graded{background:var(--ink2)}
+.mm-list{max-height:290px;overflow-y:auto;margin:10px 0;border-top:1px solid var(--line)}
+.mm-item{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line)}
+.mm-item.pending{opacity:.72}
+.mm-item-main{flex:1;min-width:0}
+.mm-item-name{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mm-item-sub{font-size:11.5px;color:var(--ink2)}
+.mm-item-score{text-align:right;flex:none;font-size:12.5px}
+.mm-item-score b{display:block;font-size:14px}
+.mm-item-score span{font-size:11px;color:var(--ink2)}
+.mm-pending{font-style:italic}
+.mm-warn{font-size:12px;color:var(--mid);background:var(--mid-soft);padding:7px 9px;border-radius:8px;margin:8px 0}
+.mm-form{display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--surface2);border-radius:10px;margin-bottom:6px}
+.mm-form input,.mm-form select{padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:13px;min-width:0}
+#as-name{flex:1 1 150px}
+#as-kind{flex:0 1 118px}
+#as-weight,#as-score,#as-max{flex:0 1 86px}
+#as-due{flex:0 1 140px}
+
 /* ---------- weekly timetable ---------- */
 #timetable-card .sectionhead select{padding:6px 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface2);color:var(--ink);font-weight:600;max-width:60%}
 .tt-wrap{overflow-x:auto;margin-top:12px}
@@ -125,6 +177,16 @@ main{max-width:1100px;margin:0 auto;padding:18px 16px 60px}
 .tt-block.blend{background:var(--danger-soft);border-color:var(--danger)}
 .tt-code{font-weight:800;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tt-meta{color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- study blocks ---------- */
+#gaps-card .sectionhead span{font-weight:700;color:var(--accent)}
+.gaprow{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:12.5px;flex-wrap:wrap}
+.gaprow.long{background:linear-gradient(90deg,var(--good-soft),transparent 60%);border-radius:8px;padding-left:8px}
+.gap-day{font-weight:800;width:36px;flex:none}
+.gap-time{width:108px;flex:none;color:var(--ink2)}
+.gap-len{font-weight:800;width:52px;flex:none;color:var(--accent)}
+.gaprow.long .gap-len{color:var(--good)}
+.gap-ctx{flex:1;min-width:160px;color:var(--ink2)}
 
 /* ---------- meetings editor ---------- */
 .meetingform{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:10px;background:var(--surface2);border-radius:10px}

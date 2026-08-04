@@ -1785,3 +1785,143 @@ grant execute on function add_course(uuid,int,text,text,numeric,uuid,text,text,t
 -- an argument-name-based RPC call ambiguous
 drop function if exists add_course(uuid,int,text,text,numeric,uuid,text,text,text);
 drop function if exists update_course(uuid,uuid,int,text,text,numeric,uuid,text,text,text);
+
+-- ---------- assessments: the individual pieces of work in a course ----------
+-- A midterm, a lab report, a problem set. `weight` is the percent of the
+-- final course grade the piece is worth; `score`/`max_score` are the raw
+-- marks. score IS NULL means "not graded yet" — the piece still counts
+-- toward the course's total weight but not toward the current standing,
+-- which is what lets the app say "you're at 86% on the 40% graded so far"
+-- rather than pretending ungraded work is a zero.
+create table if not exists academic_assessments (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references academic_courses(id) on delete cascade,
+  name text not null,
+  kind text not null default 'Test',
+  weight numeric not null default 0 check (weight >= 0 and weight <= 100),
+  score numeric check (score >= 0),
+  max_score numeric not null default 100 check (max_score > 0),
+  due_date date,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table academic_assessments enable row level security;
+revoke all on academic_assessments from anon, authenticated;
+create index if not exists academic_assessments_course_idx on academic_assessments (course_id);
+
+-- as with meetings, the owning plan is re-derived from the course rather
+-- than trusted from the caller
+create or replace function add_assessment(
+  p_plan_id uuid, p_course_id uuid, p_name text, p_kind text,
+  p_weight numeric, p_score numeric, p_max_score numeric, p_due_date date
+) returns json language plpgsql security definer as $$
+declare v_id uuid; v_order int;
+begin
+  if not exists (select 1 from academic_courses where id = p_course_id and plan_id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if length(trim(coalesce(p_name, ''))) = 0 then
+    return json_build_object('ok', false, 'error', 'empty');
+  end if;
+  if coalesce(p_max_score, 100) <= 0 then
+    return json_build_object('ok', false, 'error', 'bad_max');
+  end if;
+  if p_score is not null and p_score < 0 then
+    return json_build_object('ok', false, 'error', 'bad_score');
+  end if;
+  if coalesce(p_weight, 0) < 0 or coalesce(p_weight, 0) > 100 then
+    return json_build_object('ok', false, 'error', 'bad_weight');
+  end if;
+  select coalesce(max(sort_order), -1) + 1 into v_order from academic_assessments where course_id = p_course_id;
+  insert into academic_assessments(course_id, name, kind, weight, score, max_score, due_date, sort_order)
+    values (p_course_id, trim(p_name), coalesce(nullif(trim(p_kind), ''), 'Test'),
+            coalesce(p_weight, 0), p_score, coalesce(p_max_score, 100), p_due_date, v_order)
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_assessment(uuid,uuid,text,text,numeric,numeric,numeric,date) to anon;
+
+-- p_clear_score exists because a plain NULL p_score is ambiguous: it could
+-- mean "leave the mark alone" or "this isn't graded any more". The flag
+-- makes the caller say which.
+create or replace function update_assessment(
+  p_plan_id uuid, p_id uuid, p_name text, p_kind text, p_weight numeric,
+  p_score numeric, p_max_score numeric, p_due_date date, p_clear_score boolean
+) returns json language plpgsql security definer as $$
+begin
+  if not exists (
+    select 1 from academic_assessments a join academic_courses c on c.id = a.course_id
+    where a.id = p_id and c.plan_id = p_plan_id
+  ) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if p_max_score is not null and p_max_score <= 0 then
+    return json_build_object('ok', false, 'error', 'bad_max');
+  end if;
+  if p_score is not null and p_score < 0 then
+    return json_build_object('ok', false, 'error', 'bad_score');
+  end if;
+  if p_weight is not null and (p_weight < 0 or p_weight > 100) then
+    return json_build_object('ok', false, 'error', 'bad_weight');
+  end if;
+  update academic_assessments set
+    name = coalesce(nullif(trim(p_name), ''), name),
+    kind = coalesce(nullif(trim(p_kind), ''), kind),
+    weight = coalesce(p_weight, weight),
+    score = case when coalesce(p_clear_score, false) then null else coalesce(p_score, score) end,
+    max_score = coalesce(p_max_score, max_score),
+    due_date = coalesce(p_due_date, due_date)
+  where id = p_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function update_assessment(uuid,uuid,text,text,numeric,numeric,numeric,date,boolean) to anon;
+
+create or replace function delete_assessment(p_plan_id uuid, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  delete from academic_assessments a
+   using academic_courses c
+   where a.id = p_id and a.course_id = c.id and c.plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function delete_assessment(uuid,uuid) to anon;
+
+-- final hydrate: plan + requirements + courses + meetings + assessments
+create or replace function get_academic_plan(p_plan_id uuid)
+returns json language plpgsql security definer as $$
+declare v_plan academic_plans;
+begin
+  select * into v_plan from academic_plans where id = p_plan_id;
+  if v_plan is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object(
+    'ok', true,
+    'plan', row_to_json(v_plan),
+    'requirements', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_requirements where plan_id = p_plan_id order by sort_order, created_at
+      ) t
+    ),
+    'courses', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_courses where plan_id = p_plan_id order by term_index, sort_order, created_at
+      ) t
+    ),
+    'meetings', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select m.* from academic_course_meetings m
+        join academic_courses c on c.id = m.course_id
+        where c.plan_id = p_plan_id
+        order by m.day_of_week, m.start_min
+      ) t
+    ),
+    'assessments', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select a.* from academic_assessments a
+        join academic_courses c on c.id = a.course_id
+        where c.plan_id = p_plan_id
+        order by a.due_date nulls last, a.sort_order, a.created_at
+      ) t
+    )
+  );
+end $$;
+grant execute on function get_academic_plan(uuid) to anon;

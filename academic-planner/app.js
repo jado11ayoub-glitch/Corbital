@@ -32,7 +32,7 @@ function touchRecent(id, title, major){
 }
 
 /* ---------- state ---------- */
-let state = { planId: null, plan: null, requirements: [], courses: [], meetings: [] };
+let state = { planId: null, plan: null, requirements: [], courses: [], meetings: [], assessments: [] };
 let editingCourseId = null; // null = adding a new course; set = editing
 let addingToTermIndex = 0;
 
@@ -115,6 +115,7 @@ function loadPlan(id){
     state.requirements = data.requirements || [];
     state.courses = data.courses || [];
     state.meetings = data.meetings || [];
+    state.assessments = data.assessments || [];
     touchRecent(id, state.plan.title, state.plan.major);
     renderPlanner();
     $('#view-landing').hidden = true;
@@ -143,6 +144,9 @@ function renderPlanner(){
   renderTerms();
   renderTimetableTermOptions();
   renderTimetable();
+  renderGaps();
+  renderMarksTermOptions();
+  renderMarks();
 }
 
 function creditsFor(status, requirementId){
@@ -249,6 +253,278 @@ function courseCardHTML(c){
     </div>`;
 }
 
+/* ---------- marks, standing and GPA ----------
+   York's undergraduate scale is 9-point (A+ = 9 at 90-100 down to F = 0);
+   the percentage bands are the calendar's published guideline, and an
+   individual instructor's scheme can differ, so treat a letter here as an
+   estimate of where a course is heading rather than a registrar figure. */
+const YORK_SCALE = [
+  { min: 90, letter: 'A+', points: 9 },
+  { min: 80, letter: 'A',  points: 8 },
+  { min: 75, letter: 'B+', points: 7 },
+  { min: 70, letter: 'B',  points: 6 },
+  { min: 65, letter: 'C+', points: 5 },
+  { min: 60, letter: 'C',  points: 4 },
+  { min: 55, letter: 'D+', points: 3 },
+  { min: 50, letter: 'D',  points: 2 },
+  { min: 40, letter: 'E',  points: 1 },
+  { min: 0,  letter: 'F',  points: 0 }
+];
+function gradeFor(pct){ return YORK_SCALE.find(g => pct >= g.min) || YORK_SCALE[YORK_SCALE.length - 1]; }
+
+function assessmentsFor(courseId){
+  return state.assessments.filter(a => a.course_id === courseId);
+}
+
+/* Current standing = how you're doing on the work that has actually been
+   marked, not a projection onto the whole course. Ungraded pieces are
+   deliberately excluded from both sides of the ratio. */
+function courseStanding(courseId){
+  const all = assessmentsFor(courseId);
+  const graded = all.filter(a => a.score !== null && a.score !== undefined);
+  const totalWeight = all.reduce((s,a) => s + Number(a.weight || 0), 0);
+  const gradedWeight = graded.reduce((s,a) => s + Number(a.weight || 0), 0);
+  if (!graded.length || gradedWeight <= 0){
+    return { hasMarks: false, totalWeight, gradedWeight: 0, pct: null, grade: null };
+  }
+  const earned = graded.reduce((s,a) => s + Number(a.weight || 0) * (Number(a.score) / Number(a.max_score || 100)), 0);
+  const pct = earned / gradedWeight * 100;
+  return { hasMarks: true, totalWeight, gradedWeight, pct, grade: gradeFor(pct) };
+}
+
+/* Running standing after each marked piece, oldest first — the sparkline. */
+function standingHistory(courseId){
+  const graded = assessmentsFor(courseId)
+    .filter(a => a.score !== null && a.score !== undefined)
+    .slice()
+    .sort((a,b) => String(a.due_date || a.created_at || '').localeCompare(String(b.due_date || b.created_at || '')));
+  let w = 0, e = 0;
+  return graded.map(a => {
+    w += Number(a.weight || 0);
+    e += Number(a.weight || 0) * (Number(a.score) / Number(a.max_score || 100));
+    return w > 0 ? e / w * 100 : 0;
+  });
+}
+
+function gpaOver(courses){
+  let pts = 0, cr = 0;
+  courses.forEach(c => {
+    const st = courseStanding(c.id);
+    if (!st.hasMarks) return;
+    pts += st.grade.points * Number(c.credits || 0);
+    cr += Number(c.credits || 0);
+  });
+  return cr > 0 ? { gpa: pts / cr, credits: cr } : { gpa: null, credits: 0 };
+}
+
+function renderMarksTermOptions(){
+  const sel = $('#mk-term');
+  const prev = sel.value;
+  sel.innerHTML = (state.plan.terms || []).map((t,i) => `<option value="${i}">${escHTML(t)}</option>`).join('');
+  const terms = state.plan.terms || [];
+  sel.value = (prev !== '' && Number(prev) < terms.length) ? prev : '0';
+}
+
+/* Running standing after each marked piece. Dots are drawn at every point
+   so two marks still read as a chart rather than as a stray underline;
+   preserveAspectRatio is left at its default so those dots stay round. */
+function sparklineSVG(vals){
+  if (vals.length < 2) return '';
+  const w = 88, h = 22, pad = 3;
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = (hi - lo) || 1;
+  const xy = vals.map((v,i) => [
+    pad + (i / (vals.length - 1)) * (w - pad * 2),
+    pad + (1 - (v - lo) / span) * (h - pad * 2)
+  ]);
+  const rising = vals[vals.length-1] >= vals[0];
+  const col = rising ? 'var(--good)' : 'var(--danger)';
+  const line = xy.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const dots = xy.map((p,i) =>
+    `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${i === xy.length-1 ? 2.6 : 1.6}" fill="${col}"/>`
+  ).join('');
+  const delta = vals[vals.length-1] - vals[0];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" role="img"
+      aria-label="Standing trend, ${delta >= 0 ? 'up' : 'down'} ${Math.abs(delta).toFixed(1)} points across ${vals.length} marks">
+    <polyline points="${line}" fill="none" stroke="${col}" stroke-width="1.6"
+      stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
+}
+
+function ringSVG(pct, letter){
+  const R = 34, C = 2 * Math.PI * R;
+  const shown = pct === null ? 0 : Math.max(0, Math.min(100, pct));
+  const off = C * (1 - shown / 100);
+  const band = pct === null ? 'var(--line)'
+    : pct >= 80 ? 'var(--good)' : pct >= 65 ? 'var(--accent)' : pct >= 50 ? 'var(--mid)' : 'var(--danger)';
+  return `<svg class="ring" viewBox="0 0 80 80">
+    <circle cx="40" cy="40" r="${R}" fill="none" stroke="var(--surface2)" stroke-width="8"/>
+    <circle cx="40" cy="40" r="${R}" fill="none" stroke="${band}" stroke-width="8" stroke-linecap="round"
+      stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 40 40)"/>
+    <text x="40" y="38" class="ringpct">${pct === null ? '—' : Math.round(pct) + '%'}</text>
+    <text x="40" y="53" class="ringletter">${letter || 'no marks'}</text>
+  </svg>`;
+}
+
+function renderMarks(){
+  const termIdx = Number($('#mk-term').value) || 0;
+  const courses = state.courses.filter(c => c.term_index === termIdx);
+  const grid = $('#ringgrid');
+  const empty = $('#mk-empty');
+
+  if (!courses.length){
+    grid.innerHTML = '';
+    empty.textContent = 'No courses in this term yet.';
+  } else {
+    empty.textContent = '';
+    grid.innerHTML = courses.map(c => {
+      const st = courseStanding(c.id);
+      const hist = standingHistory(c.id);
+      const n = assessmentsFor(c.id).length;
+      return `
+        <div class="ringcard" onclick="openMarksModal('${c.id}')">
+          ${ringSVG(st.pct, st.hasMarks ? st.grade.letter : null)}
+          <div class="ringmeta">
+            <div class="ringcode">${escHTML(c.code || c.title)}</div>
+            <div class="ringname">${escHTML(c.title)}</div>
+            <div class="ringstat">${st.hasMarks
+              ? `${fmtCredits(st.gradedWeight)}% of grade in · ${st.grade.points} pts`
+              : (n ? `${n} item${n>1?'s':''}, none graded` : 'tap to add marks')}</div>
+            ${sparklineSVG(hist)}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  const term = gpaOver(courses);
+  const cum = gpaOver(state.courses);
+  $('#gpa-term').textContent = term.gpa === null ? '—' : term.gpa.toFixed(2);
+  $('#gpa-term-sub').textContent = term.gpa === null ? 'no marks yet' : `over ${fmtCredits(term.credits)} credits`;
+  $('#gpa-cum').textContent = cum.gpa === null ? '—' : cum.gpa.toFixed(2);
+  $('#gpa-cum-sub').textContent = cum.gpa === null ? 'York 9-point scale' : `over ${fmtCredits(cum.credits)} credits graded`;
+  const box = $('#gpa-minbox');
+  box.classList.toggle('below', cum.gpa !== null && cum.gpa < 5);
+  box.classList.toggle('above', cum.gpa !== null && cum.gpa >= 5);
+  $('#gpa-min-sub').textContent = cum.gpa === null ? 'C+ cumulative, Civil Eng'
+    : cum.gpa >= 5 ? `you're ${(cum.gpa - 5).toFixed(2)} above` : `you're ${(5 - cum.gpa).toFixed(2)} below`;
+}
+
+/* ---------- the per-course marks modal ---------- */
+let marksCourseId = null;
+
+function openMarksModal(courseId){
+  marksCourseId = courseId;
+  const c = state.courses.find(x => x.id === courseId);
+  $('#mm-title').textContent = (c.code ? c.code + ' — ' : '') + c.title;
+  renderMarksModal();
+  $('#scrim').classList.add('show');
+  $('#marks-modal').classList.add('show');
+}
+function closeMarksModal(){
+  marksCourseId = null;
+  $('#scrim').classList.remove('show');
+  $('#marks-modal').classList.remove('show');
+}
+
+function renderMarksModal(){
+  if (!marksCourseId) return;
+  const st = courseStanding(marksCourseId);
+  const items = assessmentsFor(marksCourseId);
+
+  $('#mm-standing').textContent = st.hasMarks
+    ? `Currently sitting at ${st.pct.toFixed(1)}% (${st.grade.letter}, ${st.grade.points} grade points) on the ${fmtCredits(st.gradedWeight)}% of the course that's been marked.`
+    : 'Nothing graded yet — add a mark below to start tracking.';
+
+  $('#mm-bar-graded').style.width = Math.min(100, st.totalWeight ? st.gradedWeight : 0) + '%';
+  $('#mm-graded-pct').textContent = fmtCredits(st.gradedWeight) + '%';
+  $('#mm-bar-standing').style.width = (st.pct === null ? 0 : Math.min(100, st.pct)) + '%';
+  $('#mm-standing-pct').textContent = st.pct === null ? '—' : st.pct.toFixed(1) + '%';
+
+  const weightNote = st.totalWeight !== 100 && items.length
+    ? `<div class="mm-warn">Weights add up to ${fmtCredits(st.totalWeight)}%, not 100% — add the missing pieces for an accurate projection.</div>` : '';
+
+  $('#mm-list').innerHTML = weightNote + (items.length ? items.map(a => {
+    const graded = a.score !== null && a.score !== undefined;
+    const pct = graded ? (Number(a.score) / Number(a.max_score || 100) * 100) : null;
+    return `
+      <div class="mm-item${graded ? '' : ' pending'}">
+        <div class="mm-item-main">
+          <div class="mm-item-name">${escHTML(a.name)}</div>
+          <div class="mm-item-sub">${escHTML(a.kind)} · worth ${fmtCredits(a.weight)}%${a.due_date ? ' · ' + escHTML(a.due_date) : ''}</div>
+        </div>
+        <div class="mm-item-score">
+          ${graded
+            ? `<b>${fmtCredits(a.score)}/${fmtCredits(a.max_score)}</b><span>${pct.toFixed(0)}% · ${gradeFor(pct).letter}</span>`
+            : `<span class="mm-pending">not graded</span>`}
+        </div>
+        <button class="iconbtn" title="Delete" onclick="deleteAssessment('${a.id}')">🗑️</button>
+      </div>`;
+  }).join('') : '<div class="sub">No assessments yet.</div>');
+}
+
+function submitAssessment(){
+  if (!marksCourseId) return;
+  const name = $('#as-name').value.trim();
+  if (!name){ toast('Give it a name'); return; }
+  const weight = Number($('#as-weight').value);
+  const maxScore = Number($('#as-max').value) || 100;
+  const scoreRaw = $('#as-score').value.trim();
+  const score = scoreRaw === '' ? null : Number(scoreRaw);
+  if (score !== null && (isNaN(score) || score < 0)){ toast('Score has to be a positive number'); return; }
+  if (maxScore <= 0){ toast('"Out of" has to be greater than zero'); return; }
+  if (isNaN(weight) || weight < 0 || weight > 100){ toast('Weight has to be between 0 and 100'); return; }
+
+  // snapshot so the toast can report the actual movement
+  const before = courseStanding(marksCourseId);
+  const beforeCum = gpaOver(state.courses);
+
+  sb.rpc('add_assessment', {
+    p_plan_id: state.planId, p_course_id: marksCourseId, p_name: name,
+    p_kind: $('#as-kind').value, p_weight: weight, p_score: score,
+    p_max_score: maxScore, p_due_date: $('#as-due').value || null
+  }).then(({ data, error }) => {
+    if (error || !data || !data.ok){ toast('Could not save that mark'); return; }
+    state.assessments.push({
+      id: data.id, course_id: marksCourseId, name, kind: $('#as-kind').value,
+      weight, score, max_score: maxScore, due_date: $('#as-due').value || null,
+      created_at: new Date().toISOString()
+    });
+    $('#as-name').value = ''; $('#as-weight').value = ''; $('#as-score').value = ''; $('#as-due').value = '';
+    $('#as-max').value = 100;
+    reportImpact(before, beforeCum);
+    renderMarksModal(); renderMarks();
+  });
+}
+
+function deleteAssessment(id){
+  const before = courseStanding(marksCourseId);
+  const beforeCum = gpaOver(state.courses);
+  sb.rpc('delete_assessment', { p_plan_id: state.planId, p_id: id }).then(({ data, error }) => {
+    if (error || !data || !data.ok){ toast('Could not delete that'); return; }
+    state.assessments = state.assessments.filter(a => a.id !== id);
+    reportImpact(before, beforeCum);
+    renderMarksModal(); renderMarks();
+  });
+}
+
+/* the "see the impact" bit — says what actually moved, not just "saved" */
+function reportImpact(before, beforeCum){
+  const after = courseStanding(marksCourseId);
+  const afterCum = gpaOver(state.courses);
+  const bits = [];
+  if (after.hasMarks && before.hasMarks){
+    const d = after.pct - before.pct;
+    bits.push(`${before.pct.toFixed(1)}% → ${after.pct.toFixed(1)}% (${d >= 0 ? '+' : ''}${d.toFixed(1)})`);
+  } else if (after.hasMarks){
+    bits.push(`now at ${after.pct.toFixed(1)}% (${after.grade.letter})`);
+  }
+  if (afterCum.gpa !== null && beforeCum.gpa !== null && Math.abs(afterCum.gpa - beforeCum.gpa) >= 0.005){
+    bits.push(`GPA ${beforeCum.gpa.toFixed(2)} → ${afterCum.gpa.toFixed(2)}`);
+  } else if (afterCum.gpa !== null && beforeCum.gpa === null){
+    bits.push(`GPA ${afterCum.gpa.toFixed(2)}`);
+  }
+  toast(bits.length ? bits.join(' · ') : 'Saved');
+}
+
 /* ---------- weekly timetable ----------
    Laid out as an absolutely-positioned overlay per weekday rather than a
    table, so a 90-minute class and a 2-hour lab both land on exact pixel
@@ -331,6 +607,204 @@ function renderTimetable(){
       <div class="tt-gutterbody" style="height:${height}px">${hoursHTML}</div></div>
     ${colsHTML}
   </div>`;
+}
+
+/* ---------- study blocks ----------
+   Only gaps *between* classes count: time before your first class or
+   after your last isn't a gap, it's just your day. 45 minutes is the
+   floor for something being usable rather than a walk between buildings. */
+const GAP_FLOOR_MIN = 45;
+
+function gapsForTerm(termIdx){
+  const courseIds = new Set(state.courses.filter(c => c.term_index === termIdx).map(c => c.id));
+  const meetings = state.meetings.filter(m => courseIds.has(m.course_id));
+  const out = [];
+  for (let d = 0; d < 7; d++){
+    const day = meetings.filter(m => m.day_of_week === d).sort((a,b) => a.start_min - b.start_min);
+    if (day.length < 2) continue;
+    // merge overlaps first, so a gap is measured from the real end of
+    // whatever was running, not from an earlier class that overlapped it
+    const merged = [];
+    day.forEach(m => {
+      const last = merged[merged.length - 1];
+      if (last && m.start_min <= last.end){ last.end = Math.max(last.end, m.end_min); last.after = m; }
+      else merged.push({ start: m.start_min, end: m.end_min, before: m, after: m });
+    });
+    for (let i = 0; i < merged.length - 1; i++){
+      const gap = merged[i+1].start - merged[i].end;
+      if (gap < GAP_FLOOR_MIN) continue;
+      out.push({
+        day: d, start: merged[i].end, end: merged[i+1].start, mins: gap,
+        afterCourse: state.courses.find(c => c.id === merged[i].after.course_id),
+        beforeCourse: state.courses.find(c => c.id === merged[i+1].before.course_id)
+      });
+    }
+  }
+  return out;
+}
+
+function renderGaps(){
+  const termIdx = Number($('#tt-term').value) || 0;
+  const gaps = gapsForTerm(termIdx);
+  const list = $('#gaps-list');
+  const summary = $('#gaps-summary');
+
+  if (!gaps.length){
+    list.innerHTML = '';
+    summary.textContent = '';
+    list.innerHTML = '<div class="sub" style="margin-top:10px">No gaps of 45 minutes or more in this term — your classes run back to back.</div>';
+    return;
+  }
+  const totalMins = gaps.reduce((s,g) => s + g.mins, 0);
+  const hrs = Math.round(totalMins / 6) / 10;
+  summary.textContent = `${hrs}h across ${gaps.length} block${gaps.length>1?'s':''} a week`;
+
+  list.innerHTML = gaps.map(g => {
+    const long = g.mins >= 90;
+    const label = g.mins >= 60 ? `${Math.round(g.mins/6)/10}h` : `${g.mins}m`;
+    return `
+      <div class="gaprow${long ? ' long' : ''}">
+        <span class="gap-day">${DAY_NAMES[g.day]}</span>
+        <span class="gap-time">${fmtTime(g.start)}–${fmtTime(g.end)}</span>
+        <span class="gap-len">${label}</span>
+        <span class="gap-ctx">after ${escHTML(g.afterCourse ? (g.afterCourse.code || g.afterCourse.title) : '?')}
+          → before ${escHTML(g.beforeCourse ? (g.beforeCourse.code || g.beforeCourse.title) : '?')}</span>
+      </div>`;
+  }).join('');
+}
+
+/* ---------- calendar export (.ics) ----------
+   Times are written as floating local times (no Z, no TZID): a 9:30 class
+   is 9:30 wherever the calendar is read, which is what you want for a
+   campus timetable and avoids shipping a VTIMEZONE block. */
+const YORK_TERM_PRESETS = {
+  /* official York 2026-2027 Fall/Winter dates */
+  fall:   { start: '2026-09-09', end: '2026-12-08', skipStart: '2026-10-10', skipEnd: '2026-10-16', label: 'York Fall 2026' },
+  winter: { start: '2027-01-04', end: '2027-04-05', skipStart: '2027-02-13', skipEnd: '2027-02-19', label: 'York Winter 2027' }
+};
+
+function presetForTerm(termIdx){
+  const name = ((state.plan.terms || [])[termIdx] || '').toLowerCase();
+  if (/fall|\(f\)/.test(name)) return YORK_TERM_PRESETS.fall;
+  if (/winter|\(w\)/.test(name)) return YORK_TERM_PRESETS.winter;
+  return null;
+}
+
+function openExportModal(){
+  const termIdx = Number($('#tt-term').value) || 0;
+  $('#ex-termname').textContent = (state.plan.terms || [])[termIdx] || '';
+  const p = presetForTerm(termIdx);
+  $('#ex-start').value = p ? p.start : '';
+  $('#ex-end').value = p ? p.end : '';
+  $('#ex-skip-start').value = p ? p.skipStart : '';
+  $('#ex-skip-end').value = p ? p.skipEnd : '';
+  $('#ex-preset').textContent = p
+    ? `Pre-filled with the ${p.label} dates from York's registrar — change them if your term runs differently.`
+    : 'No York preset matched this term name, so fill the dates in yourself.';
+  $('#scrim').classList.add('show');
+  $('#export-modal').classList.add('show');
+}
+
+function parseDateOnly(s){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((s || '').trim());
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+function icsDate(d){
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
+}
+function icsStamp(d, min){
+  const p = n => String(n).padStart(2, '0');
+  return `${icsDate(d)}T${p(Math.floor(min/60))}${p(min%60)}00`;
+}
+/* RFC 5545 caps a line at 75 octets, continued with CRLF + one space.
+   The limit is bytes, not characters — "—" is 3 bytes and room names carry
+   accents — so measure in UTF-8 and never split a codepoint across the
+   fold. Applied to every line, since UIDs blow past 75 on their own. */
+function foldICS(line){
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 75) return line;
+  const out = [];
+  let cur = '', curBytes = 0, limit = 75;
+  for (const ch of line){                       // iterates by codepoint
+    const n = enc.encode(ch).length;
+    if (curBytes + n > limit){
+      out.push(cur);
+      cur = ch; curBytes = n;
+      limit = 74;                               // continuation lines lose one octet to the leading space
+    } else {
+      cur += ch; curBytes += n;
+    }
+  }
+  if (cur) out.push(cur);
+  return out.join('\r\n ');
+}
+function escICS(s){
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+}
+
+function buildICS(termIdx, startDate, endDate, skipStart, skipEnd){
+  const courseIds = new Set(state.courses.filter(c => c.term_index === termIdx).map(c => c.id));
+  const meetings = state.meetings.filter(m => courseIds.has(m.course_id));
+  const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Four-Year Planner//Timetable//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
+  const until = new Date(endDate); until.setHours(23,59,59);
+
+  meetings.forEach((m, i) => {
+    const c = state.courses.find(x => x.id === m.course_id);
+    if (!c) return;
+    // first occurrence on/after the term start that lands on this weekday
+    const first = new Date(startDate);
+    const startDow = (first.getDay() + 6) % 7;           // JS Sun=0 -> Mon=0
+    first.setDate(first.getDate() + ((m.day_of_week - startDow) + 7) % 7);
+    if (first > endDate) return;
+
+    // reading-week occurrences are excluded rather than the series being split
+    const ex = [];
+    if (skipStart && skipEnd){
+      for (let d = new Date(first); d <= endDate; d.setDate(d.getDate() + 7)){
+        if (d >= skipStart && d <= skipEnd) ex.push(icsStamp(d, m.start_min));
+      }
+    }
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${state.planId}-${m.id || i}@four-year-planner`);
+    lines.push(`DTSTAMP:${icsDate(new Date())}T000000Z`);
+    lines.push(`DTSTART:${icsStamp(first, m.start_min)}`);
+    lines.push(`DTEND:${icsStamp(first, m.end_min)}`);
+    lines.push(`RRULE:FREQ=WEEKLY;UNTIL=${icsStamp(until, 23*60+59)}`);
+    if (ex.length) lines.push(`EXDATE:${ex.join(',')}`);
+    lines.push(`SUMMARY:${escICS((c.code || c.title) + ' — ' + m.component)}`);
+    if (m.location) lines.push(`LOCATION:${escICS(m.location)}`);
+    lines.push(`DESCRIPTION:${escICS(c.title + (c.section ? ' · ' + c.section : ''))}`);
+    lines.push('END:VEVENT');
+  });
+
+  lines.push('END:VCALENDAR');
+  // fold once, centrally, so no line can slip past the limit
+  return lines.map(foldICS).join('\r\n') + '\r\n';
+}
+
+function downloadICS(){
+  const termIdx = Number($('#tt-term').value) || 0;
+  const start = parseDateOnly($('#ex-start').value);
+  const end = parseDateOnly($('#ex-end').value);
+  if (!start || !end){ toast('Enter the first and last day of classes'); return; }
+  if (end < start){ toast('The last day has to come after the first'); return; }
+  const skipStart = parseDateOnly($('#ex-skip-start').value);
+  const skipEnd = parseDateOnly($('#ex-skip-end').value);
+
+  const ics = buildICS(termIdx, start, end, skipStart, skipEnd);
+  const count = (ics.match(/BEGIN:VEVENT/g) || []).length;
+  if (!count){ toast('No meeting times in this term to export'); return; }
+
+  const name = ((state.plan.terms || [])[termIdx] || 'timetable').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name.toLowerCase() + '.ics';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  closeAnyModal();
+  toast(`Exported ${count} class${count>1?'es':''} — open the file to import`);
 }
 
 /* ---------- meetings (inside the course modal) ---------- */
@@ -418,13 +892,14 @@ function renameTerm(idx, value){
   state.plan.terms = terms;
   persistPlanFields();
   renderTimetableTermOptions();
+  renderMarksTermOptions();
 }
 
 function addTerm(){
   const terms = state.plan.terms.slice();
   terms.push('New term');
   state.plan.terms = terms;
-  persistPlanFields().then(() => { renderTerms(); renderTimetableTermOptions(); });
+  persistPlanFields().then(() => { renderTerms(); renderTimetableTermOptions(); renderMarksTermOptions(); });
 }
 
 function removeLastTerm(){
@@ -434,7 +909,7 @@ function removeLastTerm(){
   const hasCourses = state.courses.some(c => c.term_index === idx);
   if (hasCourses && !confirm(`"${terms[idx]}" still has courses in it. Remove it anyway? Those courses will stay on the plan but hidden until you add the term back.`)) return;
   state.plan.terms = terms.slice(0, -1);
-  persistPlanFields().then(() => { renderTerms(); renderTimetableTermOptions(); renderTimetable(); });
+  persistPlanFields().then(() => { renderTerms(); renderTimetableTermOptions(); renderTimetable(); renderMarksTermOptions(); renderMarks(); });
 }
 
 /* ---------- requirement categories ---------- */
@@ -535,6 +1010,16 @@ function closeModal(){
   $('#course-modal').classList.remove('show');
 }
 
+/* the scrim and Escape sit behind whichever modal is open, so they close
+   all of them rather than leaving one stranded without its backdrop */
+function closeAnyModal(){
+  marksCourseId = null;
+  $('#scrim').classList.remove('show');
+  $('#course-modal').classList.remove('show');
+  $('#marks-modal').classList.remove('show');
+  $('#export-modal').classList.remove('show');
+}
+
 function submitCourse(){
   const title = $('#cm-name').value.trim();
   if (!title) { toast('Give the course a title'); return; }
@@ -589,10 +1074,11 @@ function deleteCourseFromModal(){
   sb.rpc('delete_course', { p_plan_id: state.planId, p_id: editingCourseId }).then(({ data, error }) => {
     if (error || !data || !data.ok) { toast('Could not delete course'); return; }
     state.meetings = state.meetings.filter(m => m.course_id !== editingCourseId);
+    state.assessments = state.assessments.filter(a => a.course_id !== editingCourseId);
     state.courses = state.courses.filter(x => x.id !== editingCourseId);
     closeModal();
-    renderRequirements(); renderProgress(); renderTerms(); renderTimetable();
+    renderRequirements(); renderProgress(); renderTerms(); renderTimetable(); renderMarks();
   });
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAnyModal(); });
