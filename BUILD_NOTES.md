@@ -16,13 +16,16 @@ next time it's asked for).
   you could go, not a fixed commitment. Anything beyond the overlap gets
   sorted out by message. Live in the demo feed; not wired to a real
   backend reply flow yet.
-- **Custom activity trackers:** the 3 tracker types cover count / measure
-  / ladder, but the "create goal" wizard (pick unit, direction,
-  milestones) is a stub — needs a real flow.
-- **Universal logger:** fan-out currently covers weekly chart, all-time
-  stats, and the bench/swim trend cards via simple tag matching
-  (Gym+Chest → bench, Swim+Distance → swim time). A real version needs a
-  mapping you can edit per goal. LATER
+- **Custom activity trackers:** Milestones goals are now real, backend-
+  persisted, user-created objects (see below) with a working "+ New goal"
+  wizard covering the two ownable tracker types — Performance (log a
+  number over time, chart via the generic line chart) and Progression
+  (an ordered checklist). Each goal logs/completes independently via its
+  own card, no tag-matching involved.
+- **Universal logger:** the weekly Consistency chart and all-time stats
+  stay a simple aggregate view (fan-out by activity name only, not tied
+  to individual goals) — this is a deliberate scoping choice, not a gap;
+  goal-specific logging happens on the goal's own card instead.
 - **Smart recommendations:** flags same-day overload (3+ intense
   activities stacked on one day) and gaps in habitual activities
   (something you usually do a lot missing from your whole visible
@@ -53,6 +56,11 @@ next time it's asked for).
   friend-only visibility, the availability grid, and group chat are all
   live/backend-persisted — no longer demo data. SEARCH's Person/Group/
   Activity tabs are also real now; Location is still canned demo data.
-- **Milestones (GLPR)** are still local-only — no backend sharing
-  mechanism, so they can't appear in FRIENDS/SEARCH feeds yet (their
-  filter option in those feeds will show "nothing to show").
+- **Milestones (GLPR)** are now real, backend-persisted, audience-gated
+  goals (own table + RPCs, same visibility rule as plans/plannit) — each
+  goal has a "Who can see this" picker at creation (Everyone / a circle /
+  Only me). A dedicated "Close Friends" circle is auto-provisioned per
+  account (Privacy sheet) as just another circle, so it's selectable
+  anywhere audience is picked with no extra code. Browsing a friend's
+  shared milestones from FRIENDS/SEARCH isn't built yet (the RPC —
+  `list_friend_goals` — exists; only the feed UI is still TBD).

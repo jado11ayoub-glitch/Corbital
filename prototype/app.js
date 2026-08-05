@@ -287,8 +287,11 @@ async function enterApp(){
   await drawFriendsTab();
   loadFriendsFeed();
   await loadCircles();
+  await ensureCloseFriendsCircle();
   drawAudienceSelectors();
   drawPrivacyCircles();
+  await loadGoals();
+  drawGoalCards();
   loadSearchData();
   loadPlannitFeed();
   startReqBadgePoll();
@@ -504,11 +507,31 @@ function drawAudienceSelectors(){
 function drawPrivacyCircles(){
   const box = $('#priv-circles');
   if (!box) return;
-  box.innerHTML = circlesCache.length
-    ? circlesCache.map(c =>
+  box.innerHTML = circlesCache.filter(c => c.name !== 'Close Friends').length
+    ? circlesCache.filter(c => c.name !== 'Close Friends').map(c =>
         `<button onclick="openCircleMembers('${c.id}', '${escJS(c.name)}')">${escHTML(c.name)} (${c.members.length})</button>`
       ).join('') + `<button>＋ New circle</button>`
     : `<button>＋ New circle</button>`;
+  drawPrivacyCloseFriends();
+}
+
+/* "Close Friends" is just a circle auto-created per account — it needs no
+   schema of its own since audienceButtonsHTML() already surfaces every
+   circle name as a selectable audience everywhere audience is picked. */
+async function ensureCloseFriendsCircle(){
+  if (!me) return;
+  if (circlesCache.some(c => c.name === 'Close Friends')) return;
+  await sb.rpc('create_circle', { p_me: me.username, p_name: 'Close Friends' });
+  await loadCircles();
+}
+
+function drawPrivacyCloseFriends(){
+  const box = $('#priv-closefriends');
+  if (!box) return;
+  const cf = circlesCache.find(c => c.name === 'Close Friends');
+  box.innerHTML = cf
+    ? `<button onclick="openCircleMembers('${cf.id}', 'Close Friends')">👥 Manage Close Friends (${cf.members.length})</button>`
+    : `<div class="sub">Setting up…</div>`;
 }
 
 async function createNewCircle(){
@@ -1894,26 +1917,6 @@ function logActivity(actName, tags, sourceNote, specs){
   const series = freq.series.find(x => x.n === actName);
   if (series) series.v[3] = Math.min(7, series.v[3] + 1);
   bumpTotals(actName, color);
-  if (actName === 'Gym' && tags.includes('Chest')) {
-    const sp = specs['Chest'] || {};
-    const isBench = !sp.ex || /bench/i.test(sp.ex);
-    if (isBench) {
-      const reps = parseInt(sp.reps, 10);
-      benchPts.push({ x: benchPts[benchPts.length - 1].x + 3,
-                      y: reps > 0 ? reps : benchPts[benchPts.length - 1].y + 1 });
-      drawBench();
-      hit.push(reps > 0 ? `bench trend (${reps} reps logged)` : 'bench trend');
-    }
-  }
-  if (actName === 'Swim' && (tags.includes('Distance') || tags.includes('Sprint'))) {
-    const sp = specs['Distance'] || specs['Sprint'] || {};
-    const time = parseFloat(sp.time);
-    const dist = sp.dist ? ` (${sp.dist}m)` : '';
-    swimPts.push({ x: swimPts[swimPts.length - 1].x + 4,
-                   y: time > 0 ? time : Math.max(7, swimPts[swimPts.length - 1].y - 0.2) });
-    drawSwim();
-    hit.push(time > 0 ? `swim trend (${time} min${dist} logged)` : 'swim trend');
-  }
   const tagLine = tags.length
     ? tags.map(t => specs[t] ? specText(t, specs[t]) : t)
     : [sourceNote || 'Session'];
@@ -1948,23 +1951,6 @@ function logWorkout(){
   const btn = document.querySelector('.logcard .btn.primary');
   const r = btn.getBoundingClientRect();
   burst(r.left + r.width / 2, r.top, 30);
-}
-
-/* ---------- goal completion: ladder fills + fireworks ---------- */
-function completeGoal(btn){
-  const card = btn.closest('.card');
-  const next = card.querySelector('.step.next');
-  if (!next) { toast('Goal already complete — set a new milestone in the wizard'); return; }
-  next.classList.remove('next');
-  next.classList.add('done');
-  next.querySelector('.s').textContent = 'Today';
-  card.classList.remove('celebrate');
-  void card.offsetWidth;
-  card.classList.add('celebrate');
-  const r = card.getBoundingClientRect();
-  fireworks(r.left + r.width / 2, r.top + r.height / 2);
-  logActivity('Swim', ['Distance'], 'goal milestone');
-  toast('GOAL COMPLETE — 800 m nonstop! Friends with access can congratulate you in FRDS 🎉');
 }
 
 /* ---------- canvas confetti / fireworks ---------- */
@@ -2061,10 +2047,164 @@ function chartPointTap(el, target, label){
   callout.style.top = (tRect.top - wrapRect.top) + 'px';
 }
 
-const benchPts = [{x:1,y:10},{x:5,y:13},{x:8,y:11},{x:12,y:16}];
-const swimPts  = [{x:1,y:9},{x:6,y:8.5},{x:14,y:8}];
-function drawBench(){ lineChart($('#benchchart'), benchPts, ' reps', 'var(--gym)', false); }
-function drawSwim(){ lineChart($('#swimchart'), swimPts, ' min', 'var(--swim)', true); }
+/* ---------- MILESTONES (GLPR): real, ownable, shareable goals ----------
+   'perf' goals log a number over time (chart via the generic lineChart);
+   'ladder' goals are an ordered checklist you complete one step at a time.
+   Both are real Supabase rows (see create_goal etc.) so a goal's audience
+   controls who else can see it, same as plans/plannit. */
+let goalsCache = [];
+
+async function loadGoals(){
+  if (!me) return;
+  const who = me.username;
+  const { data, error } = await sb.rpc('list_my_goals', { p_me: who });
+  if (!me || me.username !== who) return;
+  if (!error) goalsCache = (data || []).filter(g => !g.cancelled);
+}
+
+function fmtGoalDate(iso){
+  return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+
+async function goalCardHTML(g){
+  const audBadge = g.audience === 'Everyone' ? '' : `<span class="pill type">${escHTML(g.audience)}</span>`;
+  if (g.kind === 'perf') {
+    return `<div class="card">
+      <div class="goalhead"><h2>${escHTML(g.name)}</h2><span class="pill type">Performance</span>${audBadge}</div>
+      <div class="chart" id="goalchart-${g.id}"></div>
+      <div class="actions">
+        <button class="btn small" onclick="promptGoalEntry('${g.id}','${escJS(g.unit)}')">＋ Log entry</button>
+        <button class="btn small danger" onclick="cancelGoalPrompt('${g.id}','${escJS(g.name)}')">🗑️ Cancel goal</button>
+      </div>
+    </div>`;
+  }
+  const { data: steps } = await sb.rpc('list_goal_ladder', { p_me: me.username, p_goal_id: g.id });
+  const list = steps || [];
+  const nextIdx = list.findIndex(s => !s.done);
+  const stepsHTML = list.map((s, i) =>
+    `<div class="step ${s.done ? 'done' : (i === nextIdx ? 'next' : '')}">` +
+    `<div class="d">${escHTML(s.label)}</div><div class="s">${s.done ? fmtGoalDate(s.done_at) : (i === nextIdx ? 'goal' : '')}</div></div>`
+  ).join('');
+  const allDone = list.length > 0 && nextIdx === -1;
+  return `<div class="card" data-goal="${g.id}">
+    <div class="goalhead"><h2>${escHTML(g.name)}</h2><span class="pill type">Progression</span>${audBadge}</div>
+    <div class="ladder">${stepsHTML}</div>
+    <div class="actions">
+      ${allDone ? '' : `<button class="btn small" onclick="completeGoalStep('${g.id}')">✔ Hit next milestone</button>`}
+      <button class="btn small danger" onclick="cancelGoalPrompt('${g.id}','${escJS(g.name)}')">🗑️ Cancel goal</button>
+    </div>
+  </div>`;
+}
+
+async function drawGoalCards(){
+  const box = $('#goalcards');
+  if (!box) return;
+  if (!goalsCache.length) { box.innerHTML = ''; return; }
+  box.innerHTML = (await Promise.all(goalsCache.map(goalCardHTML))).join('');
+  for (const g of goalsCache) {
+    if (g.kind !== 'perf') continue;
+    const el = $(`#goalchart-${g.id}`);
+    if (!el) continue;
+    const { data: entries } = await sb.rpc('list_goal_entries', { p_me: me.username, p_goal_id: g.id });
+    const pts = (entries || []).map((e, i) => ({ x: i + 1, y: +e.value }));
+    lineChart(el, pts.length ? pts : [{ x: 1, y: 0 }], g.unit ? ' ' + g.unit : '', g.color, g.invert);
+  }
+}
+
+async function promptGoalEntry(goalId, unit){
+  const raw = prompt(`Log a new value${unit ? ' (' + unit + ')' : ''}:`);
+  if (raw === null) return;
+  const v = parseFloat(raw);
+  if (!Number.isFinite(v)) { toast('Enter a number'); return; }
+  const { data, error } = await sb.rpc('add_goal_entry', { p_me: me.username, p_goal_id: goalId, p_value: v });
+  if (error || !data.ok) { toast('Could not log — try again'); return; }
+  await drawGoalCards();
+  const btn = document.querySelector(`.card [onclick*="${goalId}"]`);
+  if (btn) { const r = btn.getBoundingClientRect(); burst(r.left + r.width / 2, r.top, 24); }
+  toast(`Logged ${v}${unit ? ' ' + unit : ''} ✓`);
+}
+
+async function completeGoalStep(goalId){
+  const { data, error } = await sb.rpc('complete_next_ladder_step', { p_me: me.username, p_goal_id: goalId });
+  if (error || !data.ok) { toast('Nothing left to complete'); return; }
+  await drawGoalCards();
+  const card = document.querySelector(`.card[data-goal="${goalId}"]`);
+  if (card) {
+    card.classList.remove('celebrate');
+    void card.offsetWidth;
+    card.classList.add('celebrate');
+    const r = card.getBoundingClientRect();
+    fireworks(r.left + r.width / 2, r.top + r.height / 2);
+  }
+  toast(`Milestone hit — ${data.label}! Friends with access can congratulate you in FRDS 🎉`);
+}
+
+async function cancelGoalPrompt(goalId, name){
+  if (!confirm(`Cancel "${name}"? It'll disappear from your Milestones — this can't be undone.`)) return;
+  const { data, error } = await sb.rpc('cancel_goal', { p_me: me.username, p_goal_id: goalId });
+  if (error || !data.ok) { toast('Could not cancel — try again'); return; }
+  await loadGoals();
+  await drawGoalCards();
+  toast(`"${name}" cancelled`);
+}
+
+/* ---------- New Goal wizard ---------- */
+let goalCreateKind = 'perf';
+let goalLadderStepCount = 0;
+
+function addGoalLadderStepRow(){
+  goalLadderStepCount++;
+  const div = document.createElement('div');
+  div.className = 'profrow';
+  div.innerHTML = `<label>Step ${goalLadderStepCount}</label>` +
+    `<input class="goal-step-input" placeholder="e.g. 600m nonstop" style="width:100%">`;
+  $('#goal-steps-list').appendChild(div);
+}
+function resetGoalLadderSteps(){
+  goalLadderStepCount = 0;
+  $('#goal-steps-list').innerHTML = '';
+  addGoalLadderStepRow();
+  addGoalLadderStepRow();
+}
+
+function setGoalKind(kind){
+  goalCreateKind = kind;
+  $$('#goal-kind button').forEach(b => b.classList.toggle('on', b.dataset.k === kind));
+  $('#goal-perf-fields').style.display = kind === 'perf' ? '' : 'none';
+  $('#goal-ladder-fields').style.display = kind === 'ladder' ? '' : 'none';
+}
+
+function openNewGoal(){
+  if (!me) return;
+  $('#goal-name').value = '';
+  $('#goal-unit').value = '';
+  $('#goal-invert').checked = false;
+  setGoalKind('perf');
+  resetGoalLadderSteps();
+  $('#goal-aud').innerHTML = audienceButtonsHTML('Everyone');
+  openSheet('newgoal');
+}
+
+async function submitNewGoal(){
+  const name = $('#goal-name').value.trim();
+  if (!name) { toast('Name the goal first'); return; }
+  const audBtn = $('#goal-aud .on');
+  const audience = audBtn ? audBtn.textContent : 'Everyone';
+  const kind = goalCreateKind;
+  const unit = $('#goal-unit').value.trim();
+  const invert = $('#goal-invert').checked;
+  const steps = kind === 'ladder' ? $$('.goal-step-input').map(el => el.value.trim()).filter(Boolean) : [];
+  if (kind === 'ladder' && !steps.length) { toast('Add at least one step'); return; }
+  const { data, error } = await sb.rpc('create_goal', {
+    p_me: me.username, p_name: name, p_kind: kind, p_unit: unit,
+    p_color: 'var(--other)', p_invert: invert, p_audience: audience, p_ladder_steps: steps
+  });
+  if (error || !data.ok) { toast('Could not create goal — try again'); return; }
+  closeSheets();
+  await loadGoals();
+  await drawGoalCards();
+  toast(`"${name}" created ✓`);
+}
 
 /* ---------- PLANNIT: group plans with a shared weekly availability grid ----------
    Feed-first: #pl-feed lists your plans (owned or accepted), a + FAB
@@ -2647,7 +2787,7 @@ function drawSearch(){
 
   if (curSearch === 'activity') {
     if (searchFilterMode === 'milestone') {
-      box.insertAdjacentHTML('beforeend', '<div class="card sub">Milestones aren\'t shareable yet — nothing to search here.</div>');
+      box.insertAdjacentHTML('beforeend', '<div class="card sub">Milestones respect each goal\'s audience setting — open a friend\'s profile to see the ones they\'ve shared with you.</div>');
       return;
     }
     let rows = source ? source.items : [];
@@ -2742,7 +2882,5 @@ drawFeed();
 drawFreq();
 drawTotals();
 drawLogger();
-drawBench();
-drawSwim();
 drawSearch();
 enterApp();

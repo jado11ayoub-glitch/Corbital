@@ -359,6 +359,165 @@ language sql security definer as $$
 $$;
 grant execute on function list_my_circles(text) to anon;
 
+-- ---------- MILESTONES: real, ownable, shareable goals ----------
+-- kind='perf' = a number you log over time (reps, minutes, …), chart goes
+-- up or down depending on invert; kind='ladder' = an ordered list of
+-- steps you check off one at a time. audience follows the same rule as
+-- plans/plannit ("Everyone"/"Only me"/a real circle name, e.g. "Close
+-- Friends" — just a circle like any other, see create_circle above).
+create table if not exists goals (
+  id uuid primary key default gen_random_uuid(),
+  owner text not null references accounts(username) on delete cascade,
+  name text not null,
+  kind text not null check (kind in ('perf','ladder')),
+  unit text not null default '',
+  color text not null default 'var(--other)',
+  invert boolean not null default false,
+  audience text not null default 'Everyone',
+  cancelled boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table goals enable row level security;
+revoke all on goals from anon, authenticated;
+
+create table if not exists goal_entries (
+  id uuid primary key default gen_random_uuid(),
+  goal_id uuid not null references goals(id) on delete cascade,
+  value numeric not null,
+  created_at timestamptz not null default now()
+);
+alter table goal_entries enable row level security;
+revoke all on goal_entries from anon, authenticated;
+
+create table if not exists goal_ladder_steps (
+  id uuid primary key default gen_random_uuid(),
+  goal_id uuid not null references goals(id) on delete cascade,
+  label text not null,
+  step_order int not null,
+  done boolean not null default false,
+  done_at timestamptz
+);
+alter table goal_ladder_steps enable row level security;
+revoke all on goal_ladder_steps from anon, authenticated;
+
+-- shared visibility check (mirrors can_see_plan): owner always sees their
+-- own goal; a friend sees it unless audience is "Only me" or a real
+-- circle they're not a member of.
+create or replace function can_see_goal(p_goal_id uuid, p_viewer text)
+returns boolean language sql security definer as $$
+  select exists (
+    select 1 from goals g
+    where g.id = p_goal_id
+      and (
+        g.owner = p_viewer
+        or (
+          g.audience <> 'Only me'
+          and exists (select 1 from friendships f where (f.user_a = g.owner and f.user_b = p_viewer) or (f.user_b = g.owner and f.user_a = p_viewer))
+          and (
+            not exists (select 1 from circles c where c.owner = g.owner and c.name = g.audience)
+            or exists (select 1 from circles c join circle_members cm on cm.circle_id = c.id where c.owner = g.owner and c.name = g.audience and cm.member = p_viewer)
+          )
+        )
+      )
+  );
+$$;
+
+create or replace function create_goal(p_me text, p_name text, p_kind text, p_unit text, p_color text, p_invert boolean, p_audience text, p_ladder_steps text[])
+returns json language plpgsql security definer as $$
+declare v_id uuid; v_label text; v_order int := 0;
+begin
+  if length(trim(coalesce(p_name,''))) = 0 then return json_build_object('ok', false, 'error', 'empty'); end if;
+  if p_kind not in ('perf','ladder') then return json_build_object('ok', false, 'error', 'bad_kind'); end if;
+  insert into goals(owner, name, kind, unit, color, invert, audience)
+    values (p_me, trim(p_name), p_kind, coalesce(p_unit,''), coalesce(p_color,'var(--other)'), coalesce(p_invert,false), coalesce(p_audience,'Everyone'))
+    returning id into v_id;
+  if p_kind = 'ladder' then
+    foreach v_label in array coalesce(p_ladder_steps, '{}') loop
+      if length(trim(v_label)) = 0 then continue; end if;
+      insert into goal_ladder_steps(goal_id, label, step_order) values (v_id, trim(v_label), v_order);
+      v_order := v_order + 1;
+    end loop;
+  end if;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function create_goal(text,text,text,text,text,boolean,text,text[]) to anon;
+
+create or replace function add_goal_entry(p_me text, p_goal_id uuid, p_value numeric)
+returns json language plpgsql security definer as $$
+begin
+  if not exists (select 1 from goals where id = p_goal_id and owner = p_me and cancelled = false) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  insert into goal_entries(goal_id, value) values (p_goal_id, p_value);
+  return json_build_object('ok', true);
+end $$;
+grant execute on function add_goal_entry(text,uuid,numeric) to anon;
+
+-- completes whichever ladder step comes next in order; owner-only
+create or replace function complete_next_ladder_step(p_me text, p_goal_id uuid)
+returns json language plpgsql security definer as $$
+declare v_step_id uuid; v_label text;
+begin
+  if not exists (select 1 from goals where id = p_goal_id and owner = p_me and cancelled = false) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  select id, label into v_step_id, v_label from goal_ladder_steps
+    where goal_id = p_goal_id and done = false order by step_order asc limit 1;
+  if v_step_id is null then return json_build_object('ok', false, 'error', 'no_steps_left'); end if;
+  update goal_ladder_steps set done = true, done_at = now() where id = v_step_id;
+  return json_build_object('ok', true, 'label', v_label);
+end $$;
+grant execute on function complete_next_ladder_step(text,uuid) to anon;
+
+create or replace function cancel_goal(p_me text, p_goal_id uuid)
+returns json language plpgsql security definer as $$
+declare v_rows int;
+begin
+  update goals set cancelled = true where id = p_goal_id and owner = p_me;
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function cancel_goal(text,uuid) to anon;
+
+-- your own goals — always visible to you regardless of audience
+create or replace function list_my_goals(p_me text)
+returns table (id uuid, name text, kind text, unit text, color text, invert boolean, audience text, cancelled boolean, created_at timestamptz)
+language sql security definer as $$
+  select id, name, kind, unit, color, invert, audience, cancelled, created_at
+  from goals where owner = p_me order by created_at asc;
+$$;
+grant execute on function list_my_goals(text) to anon;
+
+create or replace function list_goal_entries(p_me text, p_goal_id uuid)
+returns table (id uuid, value numeric, created_at timestamptz)
+language plpgsql security definer as $$
+begin
+  if not can_see_goal(p_goal_id, p_me) then return; end if;
+  return query select e.id, e.value, e.created_at from goal_entries e where e.goal_id = p_goal_id order by e.created_at asc;
+end $$;
+grant execute on function list_goal_entries(text,uuid) to anon;
+
+create or replace function list_goal_ladder(p_me text, p_goal_id uuid)
+returns table (id uuid, label text, step_order int, done boolean, done_at timestamptz)
+language plpgsql security definer as $$
+begin
+  if not can_see_goal(p_goal_id, p_me) then return; end if;
+  return query select s.id, s.label, s.step_order, s.done, s.done_at from goal_ladder_steps s where s.goal_id = p_goal_id order by s.step_order asc;
+end $$;
+grant execute on function list_goal_ladder(text,uuid) to anon;
+
+-- a friend's goals visible to you (for a future "view their milestones" UI)
+create or replace function list_friend_goals(p_me text, p_owner text)
+returns table (id uuid, name text, kind text, unit text, color text, invert boolean, audience text, cancelled boolean, created_at timestamptz)
+language sql security definer as $$
+  select g.id, g.name, g.kind, g.unit, g.color, g.invert, g.audience, g.cancelled, g.created_at
+  from goals g
+  where g.owner = p_owner and can_see_goal(g.id, p_me)
+  order by g.created_at asc;
+$$;
+grant execute on function list_friend_goals(text,text) to anon;
+
 -- ---------- scheduled workouts (SCHD), shared with friends ----------
 -- "Only me" plans are visible only to the owner; anything else is
 -- visible to the owner and to their accepted friends. Cancelled plans

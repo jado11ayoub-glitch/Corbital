@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v39</span>
+    <span class="pill">prototype v40</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -218,7 +218,7 @@
 <section class="panel" id="p-glpr">
   <div class="eyebrow">Your milestones &amp; trajectory</div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
-    <button class="btn primary" onclick="toast('New-goal wizard: pick a tracker type below — every activity maps to one of the three')">＋ New goal</button>
+    <button class="btn primary" onclick="openNewGoal()">＋ New goal</button>
   </div>
 
   <div class="card logcard">
@@ -243,28 +243,7 @@
     <div id="totals" style="margin-top:6px"></div>
   </div>
 
-  <div class="card">
-    <div class="goalhead"><h2>Bench 135 lb — reps</h2><span class="pill type">Type 2 · Performance</span></div>
-    <div class="chart" id="benchchart"></div>
-  </div>
-
-  <div class="card">
-    <div class="goalhead"><h2>400 m swim — time</h2><span class="pill type">Type 2 · Performance</span></div>
-    <div class="chart" id="swimchart"></div>
-  </div>
-
-  <div class="card">
-    <div class="goalhead"><h2>Swim 800 m nonstop</h2><span class="pill type">Type 3 · Progression</span></div>
-    <div class="ladder">
-      <div class="step done"><div class="d">400</div><div class="s">Jun 12</div></div>
-      <div class="step done"><div class="d">600</div><div class="s">Jul 02</div></div>
-      <div class="step done"><div class="d">700</div><div class="s">Jul 21</div></div>
-      <div class="step next"><div class="d">800</div><div class="s">goal</div></div>
-    </div>
-    <div class="actions">
-      <button class="btn small" onclick="completeGoal(this)">✔ Hit next milestone</button>
-    </div>
-  </div>
+  <div id="goalcards"></div>
 </section>
 
 <!-- ================= PLANNIT ================= -->
@@ -481,7 +460,10 @@
   <div class="privrow"><div class="g"><div class="t">Default audience</div>
     <div class="audsel single" id="def-aud"><button class="on">Everyone</button><button>Only me</button></div></div>
   </div>
-  <div class="privrow"><div class="g"><div class="t">Circles</div><div class="d">Made once here, usable everywhere — the composer, PLANNIT, anywhere you pick who sees something</div>
+  <div class="privrow"><div class="g"><div class="t">Close Friends</div><div class="d">Your inner circle — pick "Close Friends" as the audience on any Schedule post or Milestones goal to share it with just this group</div>
+    <div id="priv-closefriends"></div></div>
+  </div>
+  <div class="privrow"><div class="g"><div class="t">Circles</div><div class="d">Made once here, usable everywhere — the composer, PLANNIT, Milestones, anywhere you pick who sees something</div>
     <div class="audsel" id="priv-circles"><button>＋ New circle</button></div></div>
   </div>
   <div class="privrow"><div class="g"><div class="t">Hidden from</div>
@@ -500,6 +482,37 @@
   <h3 id="cm-title">Circle</h3>
   <div id="cm-list" style="margin-top:10px"></div>
   <button class="btn danger" id="cm-delete-btn" style="width:100%;justify-content:center;margin-top:14px" onclick="deleteCurrentCircle()">🗑️ Delete circle</button>
+</div>
+
+<div class="sheet" id="sheet-newgoal" role="dialog" aria-label="New goal">
+  <div class="handle"></div>
+  <h3>＋ New goal</h3>
+  <div class="profrow"><label for="goal-name">Name</label>
+    <input id="goal-name" placeholder="e.g. Bench 135 lb" style="width:100%"></div>
+  <div class="profrow"><label>Type</label>
+    <div class="audsel single" id="goal-kind">
+      <button class="on" data-k="perf" onclick="setGoalKind('perf')">Performance — log a number over time</button>
+      <button data-k="ladder" onclick="setGoalKind('ladder')">Progression — checklist of steps</button>
+    </div>
+  </div>
+  <div id="goal-perf-fields">
+    <div class="profrow"><label for="goal-unit">Unit <span class="optbadge">OPTIONAL</span></label>
+      <input id="goal-unit" placeholder="e.g. reps, min, lb" style="width:100%"></div>
+    <label class="profrow" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="goal-invert" style="width:18px;height:18px">
+      <span>Lower numbers are better (e.g. times)</span>
+    </label>
+  </div>
+  <div id="goal-ladder-fields" style="display:none">
+    <div class="profrow"><label>Steps, in order</label>
+      <div id="goal-steps-list"></div>
+      <button class="btn small" style="margin-top:6px" onclick="addGoalLadderStepRow()">＋ Add step</button>
+    </div>
+  </div>
+  <div class="profrow"><label>Who can see this</label>
+    <div class="audsel single" id="goal-aud"></div>
+  </div>
+  <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitNewGoal()">Create goal</button>
 </div>
 
 <!-- ============ notes sheet ============ -->
