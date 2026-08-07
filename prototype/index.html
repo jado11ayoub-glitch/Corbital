@@ -73,7 +73,7 @@
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v40</span>
+    <span class="pill">prototype v41</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -219,6 +219,7 @@
   <div class="eyebrow">Your milestones &amp; trajectory</div>
   <div style="display:flex;gap:8px;margin-bottom:12px">
     <button class="btn primary" onclick="openNewGoal()">＋ New goal</button>
+    <button class="btn" onclick="openAllMilestones()">👁️ View all</button>
   </div>
 
   <div class="card logcard">
@@ -452,6 +453,16 @@
   </div>
 </div>
 
+<div class="sheet" id="sheet-confirmcancelgoal" role="dialog" aria-label="Confirm delete goal">
+  <div class="handle"></div>
+  <h3 id="cg-title">Delete this goal?</h3>
+  <div class="sub" style="margin-bottom:14px">It'll disappear from your Milestones — this can't be undone.</div>
+  <div class="row" style="flex-direction:column;gap:8px">
+    <button class="btn danger" style="width:100%;justify-content:center" onclick="confirmCancelGoalYes()">Yes, delete it.</button>
+    <button class="btn" style="width:100%;justify-content:center" onclick="closeSheets()">No, don't delete it.</button>
+  </div>
+</div>
+
 <div class="scrim" id="scrim" onclick="closeSheets()"></div>
 <div class="sheet" id="sheet-privacy" role="dialog" aria-label="Privacy controls">
   <div class="handle"></div>
@@ -482,6 +493,12 @@
   <h3 id="cm-title">Circle</h3>
   <div id="cm-list" style="margin-top:10px"></div>
   <button class="btn danger" id="cm-delete-btn" style="width:100%;justify-content:center;margin-top:14px" onclick="deleteCurrentCircle()">🗑️ Delete circle</button>
+</div>
+
+<div class="sheet" id="sheet-allmilestones" role="dialog" aria-label="All milestones">
+  <div class="handle"></div>
+  <h3>👁️ All milestones</h3>
+  <div id="allmilestones-list" style="margin-top:10px"></div>
 </div>
 
 <div class="sheet" id="sheet-newgoal" role="dialog" aria-label="New goal">

@@ -418,6 +418,17 @@ th.rowlab{text-align:right;padding-right:8px;background:var(--surface)}
 .tabbadge:not([hidden]){ display:flex; }
 .tabbadge[hidden]{ display:none; }
 
+/* unread state on a Messages-list row: bolder + lighter ink, plus a
+   red-circle count badge (same visual language as .tabbadge, inline
+   instead of corner-pinned since it sits on its own row). */
+.frow.unread .dn{ font-weight:800; color:var(--brand); }
+.frow.unread .un{ font-weight:700; color:var(--brand-ink); }
+.msgrowbadge{
+  flex:none; min-width:20px; height:20px; padding:0 5px;
+  border-radius:999px; background:var(--no); color:#fff; font-size:11px; font-weight:800;
+  display:flex; align-items:center; justify-content:center; line-height:1;
+}
+
 #ptr-indicator{
   position:fixed; top:-56px; left:50%; z-index:80;
   width:34px; height:34px; border-radius:50%;

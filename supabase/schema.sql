@@ -690,12 +690,18 @@ create table if not exists event_messages (
 alter table event_messages enable row level security;
 revoke all on event_messages from anon, authenticated;
 
-create table if not exists message_reads (
-  username text primary key references accounts(username) on delete cascade,
-  last_read_at timestamptz not null default '1970-01-01'
+-- per-conversation read tracking, so opening the Messages list doesn't
+-- silently mark every thread read — only opening a specific thread does.
+-- thread_key: 'dm:'||other_username, 'event:'||plan_id, 'plannit:'||event_id.
+drop table if exists message_reads cascade;
+create table if not exists thread_reads (
+  username text not null references accounts(username) on delete cascade,
+  thread_key text not null,
+  last_read_at timestamptz not null default now(),
+  primary key (username, thread_key)
 );
-alter table message_reads enable row level security;
-revoke all on message_reads from anon, authenticated;
+alter table thread_reads enable row level security;
+revoke all on thread_reads from anon, authenticated;
 
 -- internal helper — not exposed to anon directly, only called from
 -- inside other security definer functions below.
@@ -873,11 +879,12 @@ grant execute on function send_dm(text,text,text) to anon;
 -- one row per conversation, most recent message first — powers the
 -- "Direct" list in the Messages sheet. Messages from anyone p_me has
 -- blocked are hidden entirely (soft block, not deleted).
+drop function if exists list_dm_threads(text);
 create or replace function list_dm_threads(p_me text)
 returns table (
   other text, other_display text, other_avatar text,
   last_body text, last_kind text, last_request_status text, last_sender text,
-  last_message_id uuid, last_at timestamptz
+  last_message_id uuid, last_at timestamptz, unread_count int
 ) language sql security definer as $$
   with mine as (
     select (case when sender = p_me then recipient else sender end) as other,
@@ -891,7 +898,17 @@ returns table (
     from mine
     order by other, created_at desc
   )
-  select l.other, a.display_name, a.avatar, l.body, l.kind, l.request_status, l.sender, l.id, l.created_at
+  select l.other, a.display_name, a.avatar, l.body, l.kind, l.request_status, l.sender, l.id, l.created_at,
+    (
+      select count(*)::int from dm_messages dm
+      where dm.recipient = p_me and dm.sender = l.other
+        and (
+          (dm.kind = 'text' and dm.created_at > coalesce(
+            (select tr.last_read_at from thread_reads tr where tr.username = p_me and tr.thread_key = 'dm:' || l.other),
+            '1970-01-01'::timestamptz))
+          or (dm.kind in ('join_request','plannit_invite') and dm.request_status = 'pending')
+        )
+    ) as unread_count
   from latest l join accounts a on a.username = l.other
   order by l.created_at desc;
 $$;
@@ -955,8 +972,9 @@ grant execute on function list_event_members(text,uuid) to anon;
 
 -- every event chat p_me belongs to (owner, or accepted & not-left joiner),
 -- newest activity first — powers the "Events" list in the Messages sheet.
+drop function if exists list_my_event_chats(text);
 create or replace function list_my_event_chats(p_me text)
-returns table (plan_id uuid, title text, owner text, cancelled boolean, last_body text, last_at timestamptz)
+returns table (plan_id uuid, title text, owner text, cancelled boolean, last_body text, last_at timestamptz, unread_count int)
 language sql security definer as $$
   with mine as (
     select p.id as plan_id, p.act, p.owner, p.cancelled, p.day_index from plans p where p.owner = p_me
@@ -970,7 +988,12 @@ language sql security definer as $$
       m.act || ' · ' || to_char(date '1970-01-01' + m.day_index, 'Dy') as title,
       m.owner, m.cancelled,
       (select body from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_body,
-      (select em.created_at from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_at
+      (select em.created_at from event_messages em where em.plan_id = m.plan_id order by em.created_at desc limit 1) as last_at,
+      (select count(*)::int from event_messages em2 where em2.plan_id = m.plan_id and em2.sender <> p_me
+         and em2.created_at > coalesce(
+           (select tr.last_read_at from thread_reads tr where tr.username = p_me and tr.thread_key = 'event:' || m.plan_id::text),
+           '1970-01-01'::timestamptz)
+      ) as unread_count
     from mine m
   ) t
   order by coalesce(t.last_at, '1970-01-01'::timestamptz) desc;
@@ -1202,7 +1225,7 @@ drop function if exists list_my_plannit_events(text);
 create or replace function list_my_plannit_events(p_me text)
 returns table (id uuid, name text, owner text, owner_display text, start_day int, range_type text, cancelled boolean,
   is_tbd boolean, poll_closed boolean,
-  member_count bigint, created_at timestamptz, last_body text, last_at timestamptz)
+  member_count bigint, created_at timestamptz, last_body text, last_at timestamptz, unread_count int)
 language sql security definer as $$
   with mine as (
     select e.id from plannit_events e where e.owner = p_me
@@ -1213,7 +1236,12 @@ language sql security definer as $$
     1 + (select count(*) from plannit_invites i2 where i2.event_id = e.id and i2.status = 'accepted') as member_count,
     e.created_at,
     (select body from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_body,
-    (select pm.created_at from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_at
+    (select pm.created_at from plannit_messages pm where pm.event_id = e.id order by pm.created_at desc limit 1) as last_at,
+    (select count(*)::int from plannit_messages pm2 where pm2.event_id = e.id and pm2.sender <> p_me
+       and pm2.created_at > coalesce(
+         (select tr.last_read_at from thread_reads tr where tr.username = p_me and tr.thread_key = 'plannit:' || e.id::text),
+         '1970-01-01'::timestamptz)
+    ) as unread_count
   from plannit_events e
   join accounts a on a.username = e.owner
   where e.id in (select id from mine)
@@ -1398,33 +1426,40 @@ end $$;
 grant execute on function lock_plannit_poll_winner(text,uuid) to anon;
 
 -- red-circle badge on the Messages icon: pending join requests always
--- count (they need action); text messages count once until last_read_at
--- is bumped by mark_messages_read.
+-- count (they need action); text/event/plannit messages count per-thread,
+-- against thread_reads, so it stays in sync with the per-row badges in the
+-- Messages list rather than a single global "read everything" timestamp.
 create or replace function count_unread_messages(p_me text)
 returns int language plpgsql security definer as $$
-declare v_last timestamptz; v_count int;
+declare v_count int;
 begin
-  select last_read_at into v_last from message_reads where username = p_me;
-  if v_last is null then v_last := '1970-01-01'; end if;
-
   select
     (select count(*) from dm_messages
        where recipient = p_me and kind in ('join_request','plannit_invite') and request_status = 'pending'
          and sender not in (select blocked from blocks where blocker = p_me))
     +
-    (select count(*) from dm_messages
-       where recipient = p_me and kind = 'text' and created_at > v_last
-         and sender not in (select blocked from blocks where blocker = p_me))
+    (select count(*) from dm_messages dm
+       where dm.recipient = p_me and dm.kind = 'text'
+         and dm.sender not in (select blocked from blocks where blocker = p_me)
+         and dm.created_at > coalesce(
+           (select tr.last_read_at from thread_reads tr where tr.username = p_me and tr.thread_key = 'dm:' || dm.sender),
+           '1970-01-01'::timestamptz))
     +
     (select count(*) from event_messages em
-       where em.sender <> p_me and em.created_at > v_last
+       where em.sender <> p_me
          and is_event_member(em.plan_id, p_me)
-         and em.sender not in (select blocked from blocks where blocker = p_me))
+         and em.sender not in (select blocked from blocks where blocker = p_me)
+         and em.created_at > coalesce(
+           (select tr.last_read_at from thread_reads tr where tr.username = p_me and tr.thread_key = 'event:' || em.plan_id::text),
+           '1970-01-01'::timestamptz))
     +
     (select count(*) from plannit_messages pm
-       where pm.sender <> p_me and pm.created_at > v_last
+       where pm.sender <> p_me
          and is_plannit_member(pm.event_id, p_me)
-         and pm.sender not in (select blocked from blocks where blocker = p_me))
+         and pm.sender not in (select blocked from blocks where blocker = p_me)
+         and pm.created_at > coalesce(
+           (select tr.last_read_at from thread_reads tr where tr.username = p_me and tr.thread_key = 'plannit:' || pm.event_id::text),
+           '1970-01-01'::timestamptz))
   into v_count;
   return coalesce(v_count, 0);
 end $$;
@@ -1444,14 +1479,17 @@ begin
 end $$;
 grant execute on function count_pending_join_requests(text) to anon;
 
-create or replace function mark_messages_read(p_me text)
+-- marks a single conversation read (p_thread_key: 'dm:'||other,
+-- 'event:'||plan_id, 'plannit:'||event_id) — called when that specific
+-- chat is opened, not when the Messages list is merely opened.
+create or replace function mark_thread_read(p_me text, p_thread_key text)
 returns json language plpgsql security definer as $$
 begin
-  insert into message_reads(username, last_read_at) values (p_me, now())
-    on conflict (username) do update set last_read_at = excluded.last_read_at;
+  insert into thread_reads(username, thread_key, last_read_at) values (p_me, p_thread_key, now())
+    on conflict (username, thread_key) do update set last_read_at = excluded.last_read_at;
   return json_build_object('ok', true);
 end $$;
-grant execute on function mark_messages_read(text) to anon;
+grant execute on function mark_thread_read(text,text) to anon;
 
 -- cancel a posted plan (soft delete) — it stays visible, marked
 -- "Cancelled", on your own calendar and on friends' feeds/schedules who

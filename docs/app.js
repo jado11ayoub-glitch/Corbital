@@ -1427,7 +1427,6 @@ function openMessages(){
   $$('#msg-seg button').forEach(b => b.classList.toggle('on', b.dataset.m === 'dm'));
   openSheet('messages');
   drawMessagesList();
-  markMessagesRead();
   startMsgListPoll();
 }
 $('#msg-seg').addEventListener('click', e => {
@@ -1437,6 +1436,11 @@ $('#msg-seg').addEventListener('click', e => {
   $$('#msg-seg button').forEach(x => x.classList.toggle('on', x === b));
   drawMessagesList();
 });
+
+function unreadBadgeHTML(n){
+  if (!n) return '';
+  return `<span class="msgrowbadge">${n > 9 ? '9+' : n}</span>`;
+}
 
 async function drawMessagesList(silent){
   const box = $('#msg-list');
@@ -1458,9 +1462,9 @@ async function drawMessagesList(silent){
       } else {
         preview = (t.last_sender === who ? 'You: ' : '') + escHTML(t.last_body);
       }
-      return `<div class="frow" style="cursor:pointer" onclick="openDMChat('${t.other}','${escJS(t.other_display)}')">` +
+      return `<div class="frow${t.unread_count ? ' unread' : ''}" style="cursor:pointer" onclick="openDMChat('${t.other}','${escJS(t.other_display)}')">` +
         `<span class="fav2">${t.other_avatar}</span>` +
-        `<div class="g"><div class="dn">${t.other_display}</div><div class="un">${preview}</div></div></div>`;
+        `<div class="g"><div class="dn">${t.other_display}</div><div class="un">${preview}</div></div>${unreadBadgeHTML(t.unread_count)}</div>`;
     }).join('');
   } else if (mode === 'events') {
     const { data, error } = await sb.rpc('list_my_event_chats', { p_me: who });
@@ -1469,9 +1473,9 @@ async function drawMessagesList(silent){
     if (!data.length) { html = '<div class="sub">No event chats yet — post or join an event to start one.</div>'; }
     else html = data.map(c => {
       const preview = c.last_body ? escHTML(c.last_body) : 'No messages yet';
-      return `<div class="frow" style="cursor:pointer" onclick="openEventChat('${c.plan_id}','${escJS(c.title)}')">` +
+      return `<div class="frow${c.unread_count ? ' unread' : ''}" style="cursor:pointer" onclick="openEventChat('${c.plan_id}','${escJS(c.title)}')">` +
         `<span class="fav2">${c.owner === who ? '👑' : '💬'}</span>` +
-        `<div class="g"><div class="dn">${c.title}${c.cancelled ? ' (cancelled)' : ''}</div><div class="un">${preview}</div></div></div>`;
+        `<div class="g"><div class="dn">${c.title}${c.cancelled ? ' (cancelled)' : ''}</div><div class="un">${preview}</div></div>${unreadBadgeHTML(c.unread_count)}</div>`;
     }).join('');
   } else {
     const { data, error } = await sb.rpc('list_my_plannit_events', { p_me: who });
@@ -1480,9 +1484,9 @@ async function drawMessagesList(silent){
     if (!data.length) { html = '<div class="sub">No plans yet — start one from the PLANNIT tab.</div>'; }
     else html = data.map(e => {
       const preview = e.cancelled ? '🚫 Cancelled' : (e.last_body ? escHTML(e.last_body) : 'No messages yet');
-      return `<div class="frow" style="cursor:pointer" onclick="openPlannitChat('${e.id}','${escJS(e.name)}')">` +
+      return `<div class="frow${e.unread_count ? ' unread' : ''}" style="cursor:pointer" onclick="openPlannitChat('${e.id}','${escJS(e.name)}')">` +
         `<span class="fav2">${e.owner === who ? '👑' : '🗓️'}</span>` +
-        `<div class="g"><div class="dn">${escHTML(e.name)}</div><div class="un">${preview}</div></div></div>`;
+        `<div class="g"><div class="dn">${escHTML(e.name)}</div><div class="un">${preview}</div></div>${unreadBadgeHTML(e.unread_count)}</div>`;
     }).join('');
   }
   if (box.innerHTML !== html) box.innerHTML = html;
@@ -1495,13 +1499,26 @@ function startMsgListPoll(){
 }
 function stopMsgListPoll(){ if (msgListPollTimer) clearInterval(msgListPollTimer); msgListPollTimer = null; }
 
+function threadKeyFor(chat){
+  if (!chat) return null;
+  if (chat.type === 'dm') return 'dm:' + chat.other;
+  if (chat.type === 'event') return 'event:' + chat.planId;
+  return 'plannit:' + chat.eventId;
+}
+async function markActiveChatRead(){
+  const key = threadKeyFor(activeChat);
+  if (!key || !me) return;
+  await sb.rpc('mark_thread_read', { p_me: me.username, p_thread_key: key });
+  pollMsgBadge();
+}
+
 async function openDMChat(other, otherDisplay){
   activeChat = { type:'dm', other, otherDisplay };
   $('#chat-title').textContent = otherDisplay || ('@' + other);
   $('#chat-members-btn').style.display = 'none';
   openSheet('chat');
   await drawChatMessages();
-  markMessagesRead();
+  markActiveChatRead();
   startChatPoll();
 }
 
@@ -1511,7 +1528,7 @@ async function openEventChat(planId, title){
   $('#chat-members-btn').style.display = 'inline-flex';
   openSheet('chat');
   await drawChatMessages();
-  markMessagesRead();
+  markActiveChatRead();
   startChatPoll();
 }
 
@@ -1521,7 +1538,7 @@ async function openPlannitChat(eventId, title){
   $('#chat-members-btn').style.display = 'none';
   openSheet('chat');
   await drawChatMessages();
-  markMessagesRead();
+  markActiveChatRead();
   startChatPoll();
 }
 
@@ -1567,7 +1584,7 @@ function startChatPoll(){
   chatPollTimer = setInterval(() => {
     if (!activeChat || !$('#sheet-chat').classList.contains('show')) return;
     drawChatMessages(true);
-    markMessagesRead();
+    markActiveChatRead();
   }, 3000);
 }
 function stopChatPoll(){ if (chatPollTimer) clearInterval(chatPollTimer); chatPollTimer = null; }
@@ -1726,12 +1743,6 @@ function startMsgBadgePoll(){
   msgBadgeTimer = setInterval(pollMsgBadge, 25000);
 }
 function stopMsgBadgePoll(){ if (msgBadgeTimer) clearInterval(msgBadgeTimer); msgBadgeTimer = null; }
-
-async function markMessagesRead(){
-  if (!me) return;
-  await sb.rpc('mark_messages_read', { p_me: me.username });
-  pollMsgBadge();
-}
 
 function joinPlan(ix, btn){
   if (btn.dataset.sent) { toast('Request already sent — waiting on ' + feed[ix].who); return; }
@@ -2059,7 +2070,7 @@ async function loadGoals(){
   const who = me.username;
   const { data, error } = await sb.rpc('list_my_goals', { p_me: who });
   if (!me || me.username !== who) return;
-  if (!error) goalsCache = (data || []).filter(g => !g.cancelled);
+  if (!error) goalsCache = data || [];
 }
 
 function fmtGoalDate(iso){
@@ -2068,13 +2079,13 @@ function fmtGoalDate(iso){
 
 async function goalCardHTML(g){
   const audBadge = g.audience === 'Everyone' ? '' : `<span class="pill type">${escHTML(g.audience)}</span>`;
+  const delBtn = `<button class="iconbtn sm" style="margin-left:8px" title="Delete goal" aria-label="Delete goal" onclick="openCancelGoalConfirm('${g.id}','${escJS(g.name)}')">✕</button>`;
   if (g.kind === 'perf') {
-    return `<div class="card">
-      <div class="goalhead"><h2>${escHTML(g.name)}</h2><span class="pill type">Performance</span>${audBadge}</div>
+    return `<div class="card" data-goal="${g.id}">
+      <div class="goalhead"><h2>${escHTML(g.name)}</h2><span class="pill type">Performance</span>${audBadge}${delBtn}</div>
       <div class="chart" id="goalchart-${g.id}"></div>
       <div class="actions">
         <button class="btn small" onclick="promptGoalEntry('${g.id}','${escJS(g.unit)}')">＋ Log entry</button>
-        <button class="btn small danger" onclick="cancelGoalPrompt('${g.id}','${escJS(g.name)}')">🗑️ Cancel goal</button>
       </div>
     </div>`;
   }
@@ -2087,11 +2098,10 @@ async function goalCardHTML(g){
   ).join('');
   const allDone = list.length > 0 && nextIdx === -1;
   return `<div class="card" data-goal="${g.id}">
-    <div class="goalhead"><h2>${escHTML(g.name)}</h2><span class="pill type">Progression</span>${audBadge}</div>
+    <div class="goalhead"><h2>${escHTML(g.name)}</h2><span class="pill type">Progression</span>${audBadge}${delBtn}</div>
     <div class="ladder">${stepsHTML}</div>
     <div class="actions">
       ${allDone ? '' : `<button class="btn small" onclick="completeGoalStep('${g.id}')">✔ Hit next milestone</button>`}
-      <button class="btn small danger" onclick="cancelGoalPrompt('${g.id}','${escJS(g.name)}')">🗑️ Cancel goal</button>
     </div>
   </div>`;
 }
@@ -2099,9 +2109,10 @@ async function goalCardHTML(g){
 async function drawGoalCards(){
   const box = $('#goalcards');
   if (!box) return;
-  if (!goalsCache.length) { box.innerHTML = ''; return; }
-  box.innerHTML = (await Promise.all(goalsCache.map(goalCardHTML))).join('');
-  for (const g of goalsCache) {
+  const active = goalsCache.filter(g => !g.cancelled);
+  if (!active.length) { box.innerHTML = ''; return; }
+  box.innerHTML = (await Promise.all(active.map(goalCardHTML))).join('');
+  for (const g of active) {
     if (g.kind !== 'perf') continue;
     const el = $(`#goalchart-${g.id}`);
     if (!el) continue;
@@ -2109,6 +2120,31 @@ async function drawGoalCards(){
     const pts = (entries || []).map((e, i) => ({ x: i + 1, y: +e.value }));
     lineChart(el, pts.length ? pts : [{ x: 1, y: 0 }], g.unit ? ' ' + g.unit : '', g.color, g.invert);
   }
+}
+
+/* ---------- View all milestones (active + cancelled, compact list) ---------- */
+function openAllMilestones(){
+  drawAllMilestonesList();
+  openSheet('allmilestones');
+}
+function drawAllMilestonesList(){
+  const box = $('#allmilestones-list');
+  if (!box) return;
+  if (!goalsCache.length) { box.innerHTML = '<div class="sub">No milestones yet — tap "＋ New goal" to start one.</div>'; return; }
+  box.innerHTML = goalsCache.map(g => {
+    const kindLabel = g.kind === 'perf' ? 'Performance' : 'Progression';
+    const status = g.cancelled ? '<span class="pill">Cancelled</span>' : `<span class="pill">${escHTML(g.audience)}</span>`;
+    const jump = g.cancelled ? '' : ` style="cursor:pointer" onclick="jumpToGoalCard('${g.id}')"`;
+    return `<div class="frow"${jump}><span class="fav2">${g.kind === 'perf' ? '📈' : '🪜'}</span>` +
+      `<div class="g"><div class="dn">${escHTML(g.name)}</div><div class="un">${kindLabel}</div></div>${status}</div>`;
+  }).join('');
+}
+function jumpToGoalCard(goalId){
+  closeSheets();
+  setTimeout(() => {
+    const card = document.querySelector(`.card[data-goal="${goalId}"]`);
+    if (card) { card.scrollIntoView({ behavior:'smooth', block:'center' }); card.classList.add('celebrate'); setTimeout(() => card.classList.remove('celebrate'), 900); }
+  }, 200);
 }
 
 async function promptGoalEntry(goalId, unit){
@@ -2139,13 +2175,22 @@ async function completeGoalStep(goalId){
   toast(`Milestone hit — ${data.label}! Friends with access can congratulate you in FRDS 🎉`);
 }
 
-async function cancelGoalPrompt(goalId, name){
-  if (!confirm(`Cancel "${name}"? It'll disappear from your Milestones — this can't be undone.`)) return;
-  const { data, error } = await sb.rpc('cancel_goal', { p_me: me.username, p_goal_id: goalId });
-  if (error || !data.ok) { toast('Could not cancel — try again'); return; }
+let goalCancelTarget = null; /* {id, name} for sheet-confirmcancelgoal */
+function openCancelGoalConfirm(goalId, name){
+  goalCancelTarget = { id: goalId, name };
+  $('#cg-title').textContent = `Delete "${name}"?`;
+  openSheet('confirmcancelgoal');
+}
+async function confirmCancelGoalYes(){
+  const target = goalCancelTarget;
+  goalCancelTarget = null;
+  closeSheets();
+  if (!target) return;
+  const { data, error } = await sb.rpc('cancel_goal', { p_me: me.username, p_goal_id: target.id });
+  if (error || !data.ok) { toast('Could not delete — try again'); return; }
   await loadGoals();
   await drawGoalCards();
-  toast(`"${name}" cancelled`);
+  toast(`"${target.name}" deleted`);
 }
 
 /* ---------- New Goal wizard ---------- */
