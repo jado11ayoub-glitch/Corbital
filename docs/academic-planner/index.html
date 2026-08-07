@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four-Year Academic Planner</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">🎓 <span>Four-Year Planner</span></div>
+  <div class="spacer"></div>
+  <button class="btn" id="btn-home" hidden onclick="goHome()">🏠 My plans</button>
+  <button class="btn primary" id="btn-share" hidden onclick="shareLink()">🔗 Copy share link</button>
+</header>
+
+<main>
+
+<!-- ================= landing ================= -->
+<section id="view-landing">
+  <div class="card hero">
+    <h1>Plan all four years, term by term.</h1>
+    <p class="sub">Lay out every semester, log courses against your degree requirements, and watch your credit progress fill in. No account needed — a private link is your key to this plan, so save it or bookmark it.</p>
+  </div>
+
+  <div class="card setupnote" id="setup-note" hidden>
+    <h2>⚙️ One setup step left</h2>
+    <p class="sub">The planner's database tables aren't created yet, so nothing can be saved. This is a one-time step in Supabase.</p>
+    <ol class="setupsteps">
+      <li>Open your project's <b>SQL Editor</b> → <b>New query</b>.</li>
+      <li>Paste in all of <code>supabase/schema.sql</code> from the repo and press <b>Run</b>.</li>
+      <li>Then paste in <code>supabase/seed-york-civil-eng.sql</code> and press <b>Run</b>. It prints a plan ID.</li>
+      <li>Open <code>?plan=&lt;that ID&gt;</code> — or just create a new plan below.</li>
+    </ol>
+    <p class="sub">Until then, creating or opening a plan will keep failing.</p>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h2>Start a new plan</h2>
+      <label class="field">
+        <span>Plan title</span>
+        <input id="new-title" placeholder="e.g. B.Sc. Computer Science" maxlength="80">
+      </label>
+      <label class="field">
+        <span>Major / program <span class="optional">optional</span></span>
+        <input id="new-major" placeholder="e.g. Computer Science" maxlength="80">
+      </label>
+      <label class="field">
+        <span>Credits required to graduate</span>
+        <input id="new-credits" type="number" min="0" step="1" value="120">
+      </label>
+      <button class="btn primary wide" onclick="createPlan()">Create my plan</button>
+    </div>
+
+    <div class="card">
+      <h2>Open an existing plan</h2>
+      <p class="sub">Paste the share link (or just the plan ID) you saved earlier.</p>
+      <label class="field">
+        <span>Plan link or ID</span>
+        <input id="open-id" placeholder="https://…/?plan=… or the ID itself">
+      </label>
+      <button class="btn wide" onclick="openPlanFromInput()">Open plan</button>
+
+      <div id="recents-block" hidden>
+        <div class="eyebrow">Recently opened on this device</div>
+        <div id="recents-list"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= planner ================= -->
+<section id="view-planner" hidden>
+
+  <div class="card planhead">
+    <div class="planhead-row">
+      <input id="pf-title" class="titleinput" placeholder="Plan title" maxlength="80">
+    </div>
+    <div class="planhead-row">
+      <input id="pf-major" class="majorinput" placeholder="Major / program (optional)" maxlength="80">
+    </div>
+  </div>
+
+  <div class="card progresscard">
+    <div class="progresshead">
+      <div>
+        <div class="eyebrow">Degree progress</div>
+        <div class="proglabel"><b id="pg-completed">0</b> completed · <span id="pg-planned">0</span> planned of
+          <label class="inlinenum"><input id="pf-credits" type="number" min="0" step="1"> credits</label>
+        </div>
+      </div>
+      <div class="pgpercent" id="pg-percent">0%</div>
+    </div>
+    <div class="bigbar"><div class="bigbar-planned" id="bar-planned"></div><div class="bigbar-done" id="bar-done"></div></div>
+    <div class="sub" id="pg-note"></div>
+  </div>
+
+  <div class="card">
+    <div class="sectionhead">
+      <h2>Requirement categories</h2>
+      <button class="btn small" onclick="toggleAddRequirement()">＋ Add category</button>
+    </div>
+    <div class="sub">Group courses by what they satisfy — major core, gen-ed, electives — and track credits toward each.</div>
+    <div id="req-form" class="reqform" hidden>
+      <input id="req-name" placeholder="Category name — e.g. Major core">
+      <input id="req-credits" type="number" min="0" step="1" placeholder="Credits required" style="width:150px">
+      <button class="btn primary small" onclick="submitRequirement()">Save</button>
+      <button class="btn small" onclick="toggleAddRequirement()">Cancel</button>
+    </div>
+    <div id="req-list" class="reqlist"></div>
+  </div>
+
+  <div class="card termswrap">
+    <div class="sectionhead">
+      <h2>Terms</h2>
+      <div class="row" style="gap:8px">
+        <button class="btn small" onclick="addTerm()">＋ Add term</button>
+        <button class="btn small" onclick="removeLastTerm()">－ Remove last term</button>
+      </div>
+    </div>
+    <div class="termsgrid" id="termsgrid"></div>
+  </div>
+
+  <div class="card" id="marks-card">
+    <div class="sectionhead">
+      <h2>Marks &amp; standing</h2>
+      <select id="mk-term" onchange="renderMarks()"></select>
+    </div>
+
+    <div class="gparow">
+      <div class="gpabox">
+        <div class="gpalabel">Term GPA</div>
+        <div class="gpaval" id="gpa-term">—</div>
+        <div class="gpasub" id="gpa-term-sub">no marks yet</div>
+      </div>
+      <div class="gpabox">
+        <div class="gpalabel">Cumulative GPA</div>
+        <div class="gpaval" id="gpa-cum">—</div>
+        <div class="gpasub" id="gpa-cum-sub">York 9-point scale</div>
+      </div>
+      <div class="gpabox" id="gpa-minbox">
+        <div class="gpalabel">Graduation minimum</div>
+        <div class="gpaval">5.00</div>
+        <div class="gpasub" id="gpa-min-sub">C+ cumulative, Civil Eng</div>
+      </div>
+    </div>
+
+    <div class="sub" id="mk-empty"></div>
+    <div class="ringgrid" id="ringgrid"></div>
+  </div>
+
+  <div class="card" id="timetable-card">
+    <div class="sectionhead">
+      <h2>Weekly timetable</h2>
+      <div class="row" style="gap:8px">
+        <button class="btn small" onclick="openExportModal()">📅 Export to calendar</button>
+        <select id="tt-term" onchange="renderTimetable(); renderGaps();"></select>
+      </div>
+    </div>
+    <div class="sub" id="tt-empty"></div>
+    <div class="tt-wrap"><div id="tt-grid"></div></div>
+  </div>
+
+  <div class="card" id="prereq-card">
+    <div class="sectionhead">
+      <h2>Prerequisite chains</h2>
+      <span class="sub" id="prereq-summary"></span>
+    </div>
+    <div class="sub">What each of your first-year courses unlocks in the Civil Engineering sequence — so you can see which grade actually blocks something later.</div>
+    <div id="prereq-list"></div>
+  </div>
+
+  <div class="card" id="gaps-card">
+    <div class="sectionhead">
+      <h2>Study blocks</h2>
+      <span class="sub" id="gaps-summary"></span>
+    </div>
+    <div class="sub">Gaps of 45 minutes or more between your classes — the time you're already on campus with nothing scheduled.</div>
+    <div id="gaps-list"></div>
+  </div>
+
+</section>
+
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- course add/edit modal -->
+<div class="scrim" id="scrim" onclick="closeAnyModal()"></div>
+<div class="modal" id="course-modal" role="dialog" aria-label="Course">
+  <h3 id="cm-title">Add course</h3>
+  <label class="field"><span>Course code <span class="optional">optional</span></span>
+    <input id="cm-code" placeholder="e.g. CS 201" maxlength="20"></label>
+  <label class="field"><span>Course title</span>
+    <input id="cm-name" placeholder="e.g. Data Structures" maxlength="120"></label>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>Credits</span>
+      <input id="cm-credits" type="number" min="0" step="0.5" value="3"></label>
+    <label class="field" style="flex:1"><span>Status</span>
+      <select id="cm-status">
+        <option value="planned">Planned</option>
+        <option value="in_progress">In progress</option>
+        <option value="completed">Completed</option>
+      </select>
+    </label>
+  </div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>Requirement category</span>
+      <select id="cm-req"><option value="">— None —</option></select></label>
+    <label class="field" style="flex:1"><span>Grade <span class="optional">optional</span></span>
+      <input id="cm-grade" placeholder="e.g. A-" maxlength="6"></label>
+  </div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>Section <span class="optional">optional</span></span>
+      <input id="cm-section" placeholder="e.g. Section B" maxlength="40"></label>
+  </div>
+  <label class="field"><span>Notes <span class="optional">optional</span></span>
+    <input id="cm-notes" placeholder="Prereqs, anything else" maxlength="200"></label>
+
+  <div class="field" id="cm-meetings-block">
+    <span>Weekly meetings</span>
+    <div class="sub" id="cm-meetings-hint">Save the course first, then add its lecture / tutorial / lab times.</div>
+    <div id="cm-meetings-list"></div>
+    <div class="meetingform" id="cm-meeting-form" hidden>
+      <select id="mt-component">
+        <option>Lecture</option><option>Tutorial</option><option>Laboratory</option>
+        <option>Blended Online and Classroom</option><option>Seminar</option>
+      </select>
+      <select id="mt-day">
+        <option value="0">Mon</option><option value="1">Tue</option><option value="2">Wed</option>
+        <option value="3">Thu</option><option value="4">Fri</option>
+        <option value="5">Sat</option><option value="6">Sun</option>
+      </select>
+      <input id="mt-start" type="time" step="300" value="09:30">
+      <input id="mt-end" type="time" step="300" value="10:30">
+      <input id="mt-loc" placeholder="Room — e.g. Keele: LAS C" maxlength="60">
+      <button class="btn primary small" onclick="submitMeeting()">Add meeting</button>
+    </div>
+  </div>
+
+  <div class="row" style="gap:8px;margin-top:6px">
+    <button class="btn primary wide" onclick="submitCourse()">Save course</button>
+    <button class="btn wide" onclick="closeModal()">Cancel</button>
+  </div>
+  <button class="btn danger wide" id="cm-delete" style="margin-top:8px" onclick="deleteCourseFromModal()" hidden>🗑️ Delete course</button>
+</div>
+
+<!-- calendar export -->
+<div class="modal" id="export-modal" role="dialog" aria-label="Export to calendar">
+  <h3>📅 Export to calendar</h3>
+  <div class="sub" id="ex-termname"></div>
+  <div class="sub" style="margin:8px 0 12px">Downloads a <b>.ics</b> file with every class in this term as a weekly repeating event, room included. Import it once into Google Calendar, Apple Calendar or Outlook.</div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>First day of classes</span>
+      <input id="ex-start" type="date"></label>
+    <label class="field" style="flex:1"><span>Last day of classes</span>
+      <input id="ex-end" type="date"></label>
+  </div>
+  <div class="row" style="gap:10px">
+    <label class="field" style="flex:1"><span>Reading week starts <span class="optional">optional</span></span>
+      <input id="ex-skip-start" type="date"></label>
+    <label class="field" style="flex:1"><span>Reading week ends <span class="optional">optional</span></span>
+      <input id="ex-skip-end" type="date"></label>
+  </div>
+  <div class="sub" id="ex-preset"></div>
+  <div class="row" style="gap:8px;margin-top:12px">
+    <button class="btn primary wide" onclick="downloadICS()">Download .ics</button>
+    <button class="btn wide" onclick="closeAnyModal()">Cancel</button>
+  </div>
+</div>
+
+<!-- marks / assessments for one course -->
+<div class="modal wide" id="marks-modal" role="dialog" aria-label="Course marks">
+  <h3 id="mm-title">Marks</h3>
+  <div class="sub" id="mm-standing"></div>
+
+  <div class="mm-bars">
+    <div class="mm-barrow"><span>Graded so far</span><div class="mm-bar"><div id="mm-bar-graded"></div></div><b id="mm-graded-pct">0%</b></div>
+    <div class="mm-barrow"><span>Standing on graded</span><div class="mm-bar"><div id="mm-bar-standing"></div></div><b id="mm-standing-pct">—</b></div>
+  </div>
+
+  <div id="mm-list" class="mm-list"></div>
+
+  <div class="mm-form">
+    <input id="as-name" placeholder="Name — e.g. Midterm 1" maxlength="60">
+    <select id="as-kind">
+      <option>Test</option><option>Midterm</option><option>Final exam</option>
+      <option>Assignment</option><option>Lab</option><option>Quiz</option><option>Project</option>
+    </select>
+    <input id="as-weight" type="number" min="0" max="100" step="0.5" placeholder="Weight %">
+    <input id="as-score" type="number" min="0" step="0.5" placeholder="Score">
+    <input id="as-max" type="number" min="0.5" step="0.5" placeholder="Out of" value="100">
+    <input id="as-due" type="date">
+    <button class="btn primary small" onclick="submitAssessment()">Add</button>
+  </div>
+  <div class="sub">Leave <b>Score</b> empty for work that hasn't been graded yet — it'll count toward the course total but not drag your standing down.</div>
+
+  <button class="btn wide" style="margin-top:14px" onclick="closeMarksModal()">Done</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

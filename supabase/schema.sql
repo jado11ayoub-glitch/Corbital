@@ -1634,3 +1634,491 @@ insert into accounts(username, display_name, avatar, password_hash) values
   ('dev','Dev 📚','🎧', crypt('friends1', gen_salt('bf'))),
   ('lena','Lena 🏃','🌊', crypt('friends1', gen_salt('bf')))
 on conflict (username) do nothing;
+
+-- ============================================================
+-- ACADEMIC PLANNER — standalone four-year degree planner
+-- (/academic-planner). Not part of Corbits' account system: a plan's
+-- UUID is its own access credential, same trust model as any
+-- unguessable share link (whoever holds the id/URL can view + edit
+-- that plan, nothing more). Keep plan ids out of anywhere they could
+-- leak (analytics, referrer headers, etc).
+-- ============================================================
+
+create table if not exists academic_plans (
+  id uuid primary key default gen_random_uuid(),
+  title text not null default 'My four-year plan',
+  major text not null default '',
+  total_credits_required numeric not null default 120,
+  terms jsonb not null default
+    '["Year 1 – Fall","Year 1 – Spring","Year 2 – Fall","Year 2 – Spring","Year 3 – Fall","Year 3 – Spring","Year 4 – Fall","Year 4 – Spring"]',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table academic_plans enable row level security;
+revoke all on academic_plans from anon, authenticated;
+
+create table if not exists academic_requirements (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid not null references academic_plans(id) on delete cascade,
+  name text not null,
+  credits_required numeric not null default 0,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table academic_requirements enable row level security;
+revoke all on academic_requirements from anon, authenticated;
+
+create table if not exists academic_courses (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid not null references academic_plans(id) on delete cascade,
+  requirement_id uuid references academic_requirements(id) on delete set null,
+  term_index int not null default 0,
+  code text not null default '',
+  title text not null default '',
+  credits numeric not null default 3,
+  status text not null default 'planned' check (status in ('planned','in_progress','completed')),
+  grade text,
+  notes text not null default '',
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table academic_courses enable row level security;
+revoke all on academic_courses from anon, authenticated;
+
+-- ---------- plan ----------
+create or replace function create_academic_plan(p_title text default 'My four-year plan', p_major text default '')
+returns json language plpgsql security definer as $$
+declare v_id uuid;
+begin
+  insert into academic_plans(title, major)
+    values (coalesce(nullif(trim(p_title), ''), 'My four-year plan'), coalesce(trim(p_major), ''))
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function create_academic_plan(text,text) to anon;
+
+-- returns the plan plus its requirements and courses in one call
+create or replace function get_academic_plan(p_plan_id uuid)
+returns json language plpgsql security definer as $$
+declare v_plan academic_plans;
+begin
+  select * into v_plan from academic_plans where id = p_plan_id;
+  if v_plan is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object(
+    'ok', true,
+    'plan', row_to_json(v_plan),
+    'requirements', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_requirements where plan_id = p_plan_id order by sort_order, created_at
+      ) t
+    ),
+    'courses', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_courses where plan_id = p_plan_id order by term_index, sort_order, created_at
+      ) t
+    )
+  );
+end $$;
+grant execute on function get_academic_plan(uuid) to anon;
+
+-- p_terms replaces the whole term-label array (add/remove/rename all go
+-- through here — courses keep whatever term_index they already had, so
+-- removing a term from the middle is the client's call to warn about)
+create or replace function update_academic_plan(p_plan_id uuid, p_title text, p_major text, p_total_credits_required numeric, p_terms jsonb)
+returns json language plpgsql security definer as $$
+begin
+  if not exists (select 1 from academic_plans where id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  update academic_plans set
+    title = coalesce(nullif(trim(p_title), ''), title),
+    major = coalesce(p_major, major),
+    total_credits_required = coalesce(p_total_credits_required, total_credits_required),
+    terms = coalesce(p_terms, terms),
+    updated_at = now()
+  where id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function update_academic_plan(uuid,text,text,numeric,jsonb) to anon;
+
+-- ---------- requirement categories ----------
+create or replace function add_requirement(p_plan_id uuid, p_name text, p_credits_required numeric)
+returns json language plpgsql security definer as $$
+declare v_id uuid; v_order int;
+begin
+  if not exists (select 1 from academic_plans where id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if length(trim(coalesce(p_name, ''))) = 0 then
+    return json_build_object('ok', false, 'error', 'empty');
+  end if;
+  select coalesce(max(sort_order), -1) + 1 into v_order from academic_requirements where plan_id = p_plan_id;
+  insert into academic_requirements(plan_id, name, credits_required, sort_order)
+    values (p_plan_id, trim(p_name), coalesce(p_credits_required, 0), v_order)
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_requirement(uuid,text,numeric) to anon;
+
+create or replace function update_requirement(p_plan_id uuid, p_id uuid, p_name text, p_credits_required numeric)
+returns json language plpgsql security definer as $$
+begin
+  update academic_requirements set
+    name = coalesce(nullif(trim(p_name), ''), name),
+    credits_required = coalesce(p_credits_required, credits_required)
+  where id = p_id and plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function update_requirement(uuid,uuid,text,numeric) to anon;
+
+create or replace function delete_requirement(p_plan_id uuid, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  delete from academic_requirements where id = p_id and plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function delete_requirement(uuid,uuid) to anon;
+
+-- ---------- courses ----------
+create or replace function add_course(
+  p_plan_id uuid, p_term_index int, p_code text, p_title text, p_credits numeric,
+  p_requirement_id uuid, p_status text, p_grade text, p_notes text
+) returns json language plpgsql security definer as $$
+declare v_id uuid; v_order int;
+begin
+  if not exists (select 1 from academic_plans where id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if length(trim(coalesce(p_title, ''))) = 0 then
+    return json_build_object('ok', false, 'error', 'empty');
+  end if;
+  if coalesce(p_status, 'planned') not in ('planned','in_progress','completed') then
+    return json_build_object('ok', false, 'error', 'bad_status');
+  end if;
+  select coalesce(max(sort_order), -1) + 1 into v_order
+    from academic_courses where plan_id = p_plan_id and term_index = p_term_index;
+  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, grade, notes, sort_order)
+    values (p_plan_id, coalesce(p_term_index, 0), coalesce(trim(p_code), ''), trim(p_title), coalesce(p_credits, 3),
+      p_requirement_id, coalesce(p_status, 'planned'), nullif(trim(coalesce(p_grade, '')), ''), coalesce(p_notes, ''), v_order)
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_course(uuid,int,text,text,numeric,uuid,text,text,text) to anon;
+
+create or replace function update_course(
+  p_plan_id uuid, p_id uuid, p_term_index int, p_code text, p_title text, p_credits numeric,
+  p_requirement_id uuid, p_status text, p_grade text, p_notes text
+) returns json language plpgsql security definer as $$
+begin
+  if coalesce(p_status, 'planned') not in ('planned','in_progress','completed') then
+    return json_build_object('ok', false, 'error', 'bad_status');
+  end if;
+  update academic_courses set
+    term_index = coalesce(p_term_index, term_index),
+    code = coalesce(p_code, code),
+    title = coalesce(nullif(trim(p_title), ''), title),
+    credits = coalesce(p_credits, credits),
+    requirement_id = p_requirement_id,
+    status = coalesce(p_status, status),
+    grade = nullif(trim(coalesce(p_grade, '')), ''),
+    notes = coalesce(p_notes, notes)
+  where id = p_id and plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function update_course(uuid,uuid,int,text,text,numeric,uuid,text,text,text) to anon;
+
+create or replace function delete_course(p_plan_id uuid, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  delete from academic_courses where id = p_id and plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function delete_course(uuid,uuid) to anon;
+
+-- ---------- weekly meeting times ----------
+-- One course can meet several times a week under different components
+-- (a lecture on MWF, a tutorial Friday, a 2-hour lab Thursday), so
+-- meetings are their own rows rather than columns on the course.
+-- day_of_week is 0=Monday..6=Sunday; start_min/end_min are minutes from
+-- midnight (9:30am = 570), which keeps the grid math trivial and dodges
+-- every timezone question — these are wall-clock campus times.
+alter table academic_courses add column if not exists section text not null default '';
+
+create table if not exists academic_course_meetings (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references academic_courses(id) on delete cascade,
+  component text not null default 'Lecture',
+  day_of_week int not null check (day_of_week between 0 and 6),
+  start_min int not null check (start_min between 0 and 1439),
+  end_min int not null check (end_min between 1 and 1440),
+  location text not null default '',
+  created_at timestamptz not null default now(),
+  check (end_min > start_min)
+);
+alter table academic_course_meetings enable row level security;
+revoke all on academic_course_meetings from anon, authenticated;
+create index if not exists academic_course_meetings_course_idx on academic_course_meetings (course_id);
+
+-- the plan_id is re-derived from the course rather than trusted from the
+-- caller, so a meeting can never be attached across plan boundaries
+create or replace function add_course_meeting(
+  p_plan_id uuid, p_course_id uuid, p_component text, p_day_of_week int,
+  p_start_min int, p_end_min int, p_location text
+) returns json language plpgsql security definer as $$
+declare v_id uuid;
+begin
+  if not exists (select 1 from academic_courses where id = p_course_id and plan_id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if p_day_of_week is null or p_day_of_week < 0 or p_day_of_week > 6 then
+    return json_build_object('ok', false, 'error', 'bad_day');
+  end if;
+  if p_start_min is null or p_end_min is null or p_end_min <= p_start_min
+     or p_start_min < 0 or p_end_min > 1440 then
+    return json_build_object('ok', false, 'error', 'bad_time');
+  end if;
+  insert into academic_course_meetings(course_id, component, day_of_week, start_min, end_min, location)
+    values (p_course_id, coalesce(nullif(trim(p_component), ''), 'Lecture'), p_day_of_week,
+            p_start_min, p_end_min, coalesce(trim(p_location), ''))
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_course_meeting(uuid,uuid,text,int,int,int,text) to anon;
+
+create or replace function delete_course_meeting(p_plan_id uuid, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  delete from academic_course_meetings m
+   using academic_courses c
+   where m.id = p_id and m.course_id = c.id and c.plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function delete_course_meeting(uuid,uuid) to anon;
+
+-- replaces get_academic_plan above so one call still hydrates the whole
+-- planner — now including each course's weekly meetings
+create or replace function get_academic_plan(p_plan_id uuid)
+returns json language plpgsql security definer as $$
+declare v_plan academic_plans;
+begin
+  select * into v_plan from academic_plans where id = p_plan_id;
+  if v_plan is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object(
+    'ok', true,
+    'plan', row_to_json(v_plan),
+    'requirements', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_requirements where plan_id = p_plan_id order by sort_order, created_at
+      ) t
+    ),
+    'courses', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_courses where plan_id = p_plan_id order by term_index, sort_order, created_at
+      ) t
+    ),
+    'meetings', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select m.* from academic_course_meetings m
+        join academic_courses c on c.id = m.course_id
+        where c.plan_id = p_plan_id
+        order by m.day_of_week, m.start_min
+      ) t
+    )
+  );
+end $$;
+grant execute on function get_academic_plan(uuid) to anon;
+
+-- section is editable alongside the rest of the course fields
+create or replace function update_course(
+  p_plan_id uuid, p_id uuid, p_term_index int, p_code text, p_title text, p_credits numeric,
+  p_requirement_id uuid, p_status text, p_grade text, p_notes text, p_section text
+) returns json language plpgsql security definer as $$
+begin
+  if coalesce(p_status, 'planned') not in ('planned','in_progress','completed') then
+    return json_build_object('ok', false, 'error', 'bad_status');
+  end if;
+  update academic_courses set
+    term_index = coalesce(p_term_index, term_index),
+    code = coalesce(p_code, code),
+    title = coalesce(nullif(trim(p_title), ''), title),
+    credits = coalesce(p_credits, credits),
+    requirement_id = p_requirement_id,
+    status = coalesce(p_status, status),
+    grade = nullif(trim(coalesce(p_grade, '')), ''),
+    notes = coalesce(p_notes, notes),
+    section = coalesce(p_section, section)
+  where id = p_id and plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function update_course(uuid,uuid,int,text,text,numeric,uuid,text,text,text,text) to anon;
+
+create or replace function add_course(
+  p_plan_id uuid, p_term_index int, p_code text, p_title text, p_credits numeric,
+  p_requirement_id uuid, p_status text, p_grade text, p_notes text, p_section text
+) returns json language plpgsql security definer as $$
+declare v_id uuid; v_order int;
+begin
+  if not exists (select 1 from academic_plans where id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if length(trim(coalesce(p_title, ''))) = 0 then
+    return json_build_object('ok', false, 'error', 'empty');
+  end if;
+  if coalesce(p_status, 'planned') not in ('planned','in_progress','completed') then
+    return json_build_object('ok', false, 'error', 'bad_status');
+  end if;
+  select coalesce(max(sort_order), -1) + 1 into v_order
+    from academic_courses where plan_id = p_plan_id and term_index = p_term_index;
+  insert into academic_courses(plan_id, term_index, code, title, credits, requirement_id, status, grade, notes, sort_order, section)
+    values (p_plan_id, coalesce(p_term_index, 0), coalesce(trim(p_code), ''), trim(p_title), coalesce(p_credits, 3),
+      p_requirement_id, coalesce(p_status, 'planned'), nullif(trim(coalesce(p_grade, '')), ''), coalesce(p_notes, ''), v_order,
+      coalesce(trim(p_section), ''))
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_course(uuid,int,text,text,numeric,uuid,text,text,text,text) to anon;
+
+-- the pre-section signatures would otherwise linger as overloads and make
+-- an argument-name-based RPC call ambiguous
+drop function if exists add_course(uuid,int,text,text,numeric,uuid,text,text,text);
+drop function if exists update_course(uuid,uuid,int,text,text,numeric,uuid,text,text,text);
+
+-- ---------- assessments: the individual pieces of work in a course ----------
+-- A midterm, a lab report, a problem set. `weight` is the percent of the
+-- final course grade the piece is worth; `score`/`max_score` are the raw
+-- marks. score IS NULL means "not graded yet" — the piece still counts
+-- toward the course's total weight but not toward the current standing,
+-- which is what lets the app say "you're at 86% on the 40% graded so far"
+-- rather than pretending ungraded work is a zero.
+create table if not exists academic_assessments (
+  id uuid primary key default gen_random_uuid(),
+  course_id uuid not null references academic_courses(id) on delete cascade,
+  name text not null,
+  kind text not null default 'Test',
+  weight numeric not null default 0 check (weight >= 0 and weight <= 100),
+  score numeric check (score >= 0),
+  max_score numeric not null default 100 check (max_score > 0),
+  due_date date,
+  sort_order int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table academic_assessments enable row level security;
+revoke all on academic_assessments from anon, authenticated;
+create index if not exists academic_assessments_course_idx on academic_assessments (course_id);
+
+-- as with meetings, the owning plan is re-derived from the course rather
+-- than trusted from the caller
+create or replace function add_assessment(
+  p_plan_id uuid, p_course_id uuid, p_name text, p_kind text,
+  p_weight numeric, p_score numeric, p_max_score numeric, p_due_date date
+) returns json language plpgsql security definer as $$
+declare v_id uuid; v_order int;
+begin
+  if not exists (select 1 from academic_courses where id = p_course_id and plan_id = p_plan_id) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if length(trim(coalesce(p_name, ''))) = 0 then
+    return json_build_object('ok', false, 'error', 'empty');
+  end if;
+  if coalesce(p_max_score, 100) <= 0 then
+    return json_build_object('ok', false, 'error', 'bad_max');
+  end if;
+  if p_score is not null and p_score < 0 then
+    return json_build_object('ok', false, 'error', 'bad_score');
+  end if;
+  if coalesce(p_weight, 0) < 0 or coalesce(p_weight, 0) > 100 then
+    return json_build_object('ok', false, 'error', 'bad_weight');
+  end if;
+  select coalesce(max(sort_order), -1) + 1 into v_order from academic_assessments where course_id = p_course_id;
+  insert into academic_assessments(course_id, name, kind, weight, score, max_score, due_date, sort_order)
+    values (p_course_id, trim(p_name), coalesce(nullif(trim(p_kind), ''), 'Test'),
+            coalesce(p_weight, 0), p_score, coalesce(p_max_score, 100), p_due_date, v_order)
+    returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function add_assessment(uuid,uuid,text,text,numeric,numeric,numeric,date) to anon;
+
+-- p_clear_score exists because a plain NULL p_score is ambiguous: it could
+-- mean "leave the mark alone" or "this isn't graded any more". The flag
+-- makes the caller say which.
+create or replace function update_assessment(
+  p_plan_id uuid, p_id uuid, p_name text, p_kind text, p_weight numeric,
+  p_score numeric, p_max_score numeric, p_due_date date, p_clear_score boolean
+) returns json language plpgsql security definer as $$
+begin
+  if not exists (
+    select 1 from academic_assessments a join academic_courses c on c.id = a.course_id
+    where a.id = p_id and c.plan_id = p_plan_id
+  ) then
+    return json_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if p_max_score is not null and p_max_score <= 0 then
+    return json_build_object('ok', false, 'error', 'bad_max');
+  end if;
+  if p_score is not null and p_score < 0 then
+    return json_build_object('ok', false, 'error', 'bad_score');
+  end if;
+  if p_weight is not null and (p_weight < 0 or p_weight > 100) then
+    return json_build_object('ok', false, 'error', 'bad_weight');
+  end if;
+  update academic_assessments set
+    name = coalesce(nullif(trim(p_name), ''), name),
+    kind = coalesce(nullif(trim(p_kind), ''), kind),
+    weight = coalesce(p_weight, weight),
+    score = case when coalesce(p_clear_score, false) then null else coalesce(p_score, score) end,
+    max_score = coalesce(p_max_score, max_score),
+    due_date = coalesce(p_due_date, due_date)
+  where id = p_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function update_assessment(uuid,uuid,text,text,numeric,numeric,numeric,date,boolean) to anon;
+
+create or replace function delete_assessment(p_plan_id uuid, p_id uuid)
+returns json language plpgsql security definer as $$
+begin
+  delete from academic_assessments a
+   using academic_courses c
+   where a.id = p_id and a.course_id = c.id and c.plan_id = p_plan_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function delete_assessment(uuid,uuid) to anon;
+
+-- final hydrate: plan + requirements + courses + meetings + assessments
+create or replace function get_academic_plan(p_plan_id uuid)
+returns json language plpgsql security definer as $$
+declare v_plan academic_plans;
+begin
+  select * into v_plan from academic_plans where id = p_plan_id;
+  if v_plan is null then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  return json_build_object(
+    'ok', true,
+    'plan', row_to_json(v_plan),
+    'requirements', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_requirements where plan_id = p_plan_id order by sort_order, created_at
+      ) t
+    ),
+    'courses', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select * from academic_courses where plan_id = p_plan_id order by term_index, sort_order, created_at
+      ) t
+    ),
+    'meetings', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select m.* from academic_course_meetings m
+        join academic_courses c on c.id = m.course_id
+        where c.plan_id = p_plan_id
+        order by m.day_of_week, m.start_min
+      ) t
+    ),
+    'assessments', (
+      select coalesce(json_agg(t), '[]'::json) from (
+        select a.* from academic_assessments a
+        join academic_courses c on c.id = a.course_id
+        where c.plan_id = p_plan_id
+        order by a.due_date nulls last, a.sort_order, a.created_at
+      ) t
+    )
+  );
+end $$;
+grant execute on function get_academic_plan(uuid) to anon;
