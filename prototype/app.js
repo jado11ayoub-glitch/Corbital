@@ -2271,9 +2271,9 @@ let plannitCreateRange = 'week';
 /* ---- range math: how far a plan's range runs, and what grid granularity
    fits it — a year of 2-hour slots would be unusable, so longer ranges
    trade time-of-day precision for coverage: 'today'/'week' keep the 2-hour
-   slot grid, 'twoweek' drops to one cell per whole day, and 'month'/'year'
-   simplify further into blocks (one cell per week / 2-week block) instead
-   of a long line of individual day cells. ---- */
+   slot grid, 'twoweek'/'month' drop to one cell per whole day (stacked as
+   week-wide rows in drawPlannitGrid instead of one long line — see there),
+   and 'year' simplifies further into one cell per 2-week block. ---- */
 function plannitRangeEnd(startDay, rangeType){ /* exclusive end epoch-day */
   if (rangeType === 'today') return startDay + 1;
   if (rangeType === 'week') return startDay + 7;
@@ -2290,19 +2290,12 @@ function plannitRangeEnd(startDay, rangeType){ /* exclusive end epoch-day */
 }
 function plannitGranularity(rangeType){
   if (rangeType === 'today' || rangeType === 'week') return 'slot';
-  if (rangeType === 'month') return 'weekblock';
   if (rangeType === 'year') return 'biweek';
-  return 'day'; /* twoweek */
-}
-function plannitGranularityUnitDays(granularity){
-  if (granularity === 'biweek') return 14;
-  if (granularity === 'weekblock') return 7;
-  return 1;
+  return 'day'; /* twoweek, month */
 }
 function plannitUnitCount(startDay, rangeType){
   const days = plannitRangeEnd(startDay, rangeType) - startDay;
-  const unitDays = plannitGranularityUnitDays(plannitGranularity(rangeType));
-  return Math.ceil(days / unitDays);
+  return plannitGranularity(rangeType) === 'biweek' ? Math.ceil(days / 14) : days;
 }
 function plannitRangeLabel(startDay, rangeType){
   if (rangeType === 'poll') return 'Poll';
@@ -2517,18 +2510,41 @@ function closePlannitDetail(){
 }
 
 function plannitUnitHeadHTML(ev, unitIx, granularity){
-  if (granularity === 'biweek' || granularity === 'weekblock') {
-    const unitDays = plannitGranularityUnitDays(granularity);
-    const s = dayDate(ev.start_day + unitIx * unitDays);
-    const e = dayDate(Math.min(ev.start_day + unitIx * unitDays + (unitDays - 1), plannitRangeEnd(ev.start_day, ev.range_type) - 1));
-    const label = granularity === 'weekblock' ? `Week ${unitIx + 1}<br>` : '';
-    return `${label}<span class="mono" style="font-weight:400;white-space:nowrap">${s.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${e.toLocaleDateString('en-US',{day:'numeric'})}</span>`;
+  if (granularity === 'biweek') {
+    const s = dayDate(ev.start_day + unitIx * 14);
+    const e = dayDate(Math.min(ev.start_day + unitIx * 14 + 13, plannitRangeEnd(ev.start_day, ev.range_type) - 1));
+    return `<span class="mono" style="font-weight:400;white-space:nowrap">${s.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${e.toLocaleDateString('en-US',{day:'numeric'})}</span>`;
   }
   const d = dayDate(ev.start_day + unitIx);
   const dow = d.toLocaleDateString('en-US', { weekday:'short' }).toUpperCase();
   return `${dow}<br><span class="mono" style="font-weight:400">${d.getDate()}</span>`;
 }
 
+function plannitCell(ev, u, slotIx){
+  const td = document.createElement('td');
+  const cellAnswers = plannitGridCache.filter(r => r.day_offset === u && r.slot_index === slotIx);
+  const mine = cellAnswers.find(r => r.member === me.username);
+  const yesCount = cellAnswers.filter(r => r.answer === 'yes').length;
+  const b = document.createElement('button');
+  const shown = mine ? mine.answer : 'none';
+  b.className = ANSWER_CLASS[shown];
+  b.textContent = yesCount > 1 ? `${yesCount}${ANSWER_SYM.yes}` : ANSWER_SYM[shown];
+  b.title = cellAnswers.length
+    ? cellAnswers.map(r => `${r.member_display}: ${r.answer}`).join(', ')
+    : 'No answers yet';
+  if (!ev.cancelled) {
+    b.onclick = () => paintPlannitAnswer(u, slotIx);
+  } else {
+    b.disabled = true;
+  }
+  td.appendChild(b);
+  return td;
+}
+
+/* 'day' granularity (twoweek/month) stacks one 7-day-wide week strip on
+   top of the next, rather than one long line of ~14-31 day columns —
+   each strip is its own header row + answer row, same day-cell paint
+   interaction as before, just wrapped at 7 columns. */
 async function drawPlannitGrid(){
   if (!activePlannitEvent) return;
   const ev = activePlannitEvent;
@@ -2539,8 +2555,27 @@ async function drawPlannitGrid(){
   const granularity = plannitGranularity(ev.range_type);
   const unitCount = plannitUnitCount(ev.start_day, ev.range_type);
   const t = $('#availgrid');
+  t.innerHTML = '';
+
+  if (granularity === 'day' && unitCount > 7) {
+    for (let base = 0; base < unitCount; base += 7) {
+      const chunkLen = Math.min(7, unitCount - base);
+      const heads = Array.from({ length: chunkLen }, (_, i) => plannitUnitHeadHTML(ev, base + i, granularity));
+      const headTr = document.createElement('tr');
+      headTr.innerHTML = '<th></th>' + heads.map(h => `<th>${h}</th>`).join('');
+      t.appendChild(headTr);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<th class="rowlab">Available</th>`;
+      for (let i = 0; i < chunkLen; i++) tr.appendChild(plannitCell(ev, base + i, 0));
+      t.appendChild(tr);
+    }
+    return;
+  }
+
   const unitHeads = Array.from({ length: unitCount }, (_, u) => plannitUnitHeadHTML(ev, u, granularity));
-  t.innerHTML = '<tr><th></th>' + unitHeads.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  const headTr = document.createElement('tr');
+  headTr.innerHTML = '<th></th>' + unitHeads.map(h => `<th>${h}</th>`).join('');
+  t.appendChild(headTr);
 
   const slots = granularity === 'slot' ? PLANNIT_SLOTS : [null];
   slots.forEach((hr, slotIx) => {
@@ -2548,26 +2583,7 @@ async function drawPlannitGrid(){
     tr.innerHTML = granularity === 'slot'
       ? `<th class="rowlab mono">${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}</th>`
       : `<th class="rowlab">Available</th>`;
-    for (let u = 0; u < unitCount; u++) {
-      const td = document.createElement('td');
-      const cellAnswers = plannitGridCache.filter(r => r.day_offset === u && r.slot_index === slotIx);
-      const mine = cellAnswers.find(r => r.member === me.username);
-      const yesCount = cellAnswers.filter(r => r.answer === 'yes').length;
-      const b = document.createElement('button');
-      const shown = mine ? mine.answer : 'none';
-      b.className = ANSWER_CLASS[shown];
-      b.textContent = yesCount > 1 ? `${yesCount}${ANSWER_SYM.yes}` : ANSWER_SYM[shown];
-      b.title = cellAnswers.length
-        ? cellAnswers.map(r => `${r.member_display}: ${r.answer}`).join(', ')
-        : 'No answers yet';
-      if (!ev.cancelled) {
-        b.onclick = () => paintPlannitAnswer(u, slotIx);
-      } else {
-        b.disabled = true;
-      }
-      td.appendChild(b);
-      tr.appendChild(td);
-    }
+    for (let u = 0; u < unitCount; u++) tr.appendChild(plannitCell(ev, u, slotIx));
     t.appendChild(tr);
   });
 }
