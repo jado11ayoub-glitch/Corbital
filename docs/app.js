@@ -2271,8 +2271,9 @@ let plannitCreateRange = 'week';
 /* ---- range math: how far a plan's range runs, and what grid granularity
    fits it — a year of 2-hour slots would be unusable, so longer ranges
    trade time-of-day precision for coverage: 'today'/'week' keep the 2-hour
-   slot grid, 'twoweek'/'month' drop to one cell per whole day, and 'year'
-   drops further to one cell per 2-week block. ---- */
+   slot grid, 'twoweek' drops to one cell per whole day, and 'month'/'year'
+   simplify further into blocks (one cell per week / 2-week block) instead
+   of a long line of individual day cells. ---- */
 function plannitRangeEnd(startDay, rangeType){ /* exclusive end epoch-day */
   if (rangeType === 'today') return startDay + 1;
   if (rangeType === 'week') return startDay + 7;
@@ -2289,12 +2290,19 @@ function plannitRangeEnd(startDay, rangeType){ /* exclusive end epoch-day */
 }
 function plannitGranularity(rangeType){
   if (rangeType === 'today' || rangeType === 'week') return 'slot';
+  if (rangeType === 'month') return 'weekblock';
   if (rangeType === 'year') return 'biweek';
-  return 'day'; /* twoweek, month */
+  return 'day'; /* twoweek */
+}
+function plannitGranularityUnitDays(granularity){
+  if (granularity === 'biweek') return 14;
+  if (granularity === 'weekblock') return 7;
+  return 1;
 }
 function plannitUnitCount(startDay, rangeType){
   const days = plannitRangeEnd(startDay, rangeType) - startDay;
-  return plannitGranularity(rangeType) === 'biweek' ? Math.ceil(days / 14) : days;
+  const unitDays = plannitGranularityUnitDays(plannitGranularity(rangeType));
+  return Math.ceil(days / unitDays);
 }
 function plannitRangeLabel(startDay, rangeType){
   if (rangeType === 'poll') return 'Poll';
@@ -2509,10 +2517,12 @@ function closePlannitDetail(){
 }
 
 function plannitUnitHeadHTML(ev, unitIx, granularity){
-  if (granularity === 'biweek') {
-    const s = dayDate(ev.start_day + unitIx * 14);
-    const e = dayDate(Math.min(ev.start_day + unitIx * 14 + 13, plannitRangeEnd(ev.start_day, ev.range_type) - 1));
-    return `<span class="mono" style="font-weight:400;white-space:nowrap">${s.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${e.toLocaleDateString('en-US',{day:'numeric'})}</span>`;
+  if (granularity === 'biweek' || granularity === 'weekblock') {
+    const unitDays = plannitGranularityUnitDays(granularity);
+    const s = dayDate(ev.start_day + unitIx * unitDays);
+    const e = dayDate(Math.min(ev.start_day + unitIx * unitDays + (unitDays - 1), plannitRangeEnd(ev.start_day, ev.range_type) - 1));
+    const label = granularity === 'weekblock' ? `Week ${unitIx + 1}<br>` : '';
+    return `${label}<span class="mono" style="font-weight:400;white-space:nowrap">${s.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${e.toLocaleDateString('en-US',{day:'numeric'})}</span>`;
   }
   const d = dayDate(ev.start_day + unitIx);
   const dow = d.toLocaleDateString('en-US', { weekday:'short' }).toUpperCase();
