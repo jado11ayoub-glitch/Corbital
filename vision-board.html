@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Vision Board</title>
+<style>
+/* ====================================================================
+   QUICK-EDIT ZONE — change these and refresh. Nothing else to touch.
+   ==================================================================== */
+:root{
+  --accent:#c9184a;         /* the one color that runs through everything */
+  --bg1:#fdf1e8;            /* page background, top of gradient */
+  --bg2:#f3e6f0;            /* page background, bottom of gradient */
+  --ink:#2a2320;            /* main text */
+  --ink2:#7a6f68;           /* secondary text */
+  --card:#ffffff;           /* card background */
+  --line:#ece2dc;           /* hairlines / borders */
+  --font:"Avenir Next",Avenir,"Segoe UI",system-ui,sans-serif;
+  --title-font:Georgia,"Times New Roman",serif; /* used for the big heading + card titles */
+}
+/* a few one-click alternate palettes — tap a dot in the header to swap */
+body[data-theme="teal"]{ --accent:#0f766e; --bg1:#eafaf6; --bg2:#e6f0f7; }
+body[data-theme="gold"]{ --accent:#a16207; --bg1:#fdf7e6; --bg2:#f7ecd9; }
+body[data-theme="indigo"]{ --accent:#4338ca; --bg1:#eef0fd; --bg2:#f2e9f9; }
+body[data-theme="rose"]{ --accent:#c9184a; --bg1:#fdf1e8; --bg2:#f3e6f0; }
+body[data-theme="dark"]{
+  --accent:#e6a15c; --bg1:#171412; --bg2:#1c1620; --ink:#f1ece7; --ink2:#a89d95;
+  --card:#231d1a; --line:#3a322d;
+}
+/* ==================================================================== */
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  min-height:100vh;
+  background:linear-gradient(160deg,var(--bg1),var(--bg2));
+  color:var(--ink);
+  font:15px/1.5 var(--font);
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:960px;margin:0 auto;padding:36px 20px 90px}
+
+header{text-align:center;margin-bottom:26px}
+h1{
+  font-family:var(--title-font);
+  font-size:clamp(28px,5vw,42px);
+  margin:0 0 6px;
+  letter-spacing:-.01em;
+}
+h1 .accent{color:var(--accent)}
+.tagline{color:var(--ink2);font-size:14px;margin-bottom:18px}
+.tagline[contenteditable]{outline:none;cursor:text}
+.tagline[contenteditable]:hover{text-decoration:underline dotted var(--ink2)}
+
+.toolbar{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.swatches{display:flex;gap:6px;align-items:center}
+.swatch{
+  width:20px;height:20px;border-radius:50%;border:2px solid transparent;cursor:pointer;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
+}
+.swatch[data-t="rose"]{background:#c9184a}
+.swatch[data-t="teal"]{background:#0f766e}
+.swatch[data-t="gold"]{background:#a16207}
+.swatch[data-t="indigo"]{background:#4338ca}
+.swatch[data-t="dark"]{background:#171412}
+.swatch.on{border-color:var(--ink)}
+
+.btn{
+  display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:999px;
+  font-weight:600;font-size:13px;background:var(--card);border:1px solid var(--line);
+  color:var(--ink);cursor:pointer;font-family:inherit;
+}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.ghost{background:transparent}
+.btn.small{padding:6px 12px;font-size:12px}
+
+.presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:18px 0 28px}
+.preset{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;
+  background:var(--card);border:1.5px dashed var(--line);color:var(--ink2);
+  font-size:13px;cursor:pointer;font-family:inherit;
+}
+.preset:hover{border-color:var(--accent);color:var(--ink)}
+
+#empty{text-align:center;color:var(--ink2);padding:50px 20px;font-size:14px}
+
+#board{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:16px;
+}
+.card{
+  position:relative;aspect-ratio:3/4;border-radius:18px;overflow:hidden;
+  background:var(--card);border:1px solid var(--line);cursor:pointer;
+  display:flex;flex-direction:column;justify-content:flex-end;
+  box-shadow:0 1px 3px rgba(0,0,0,.06),0 8px 20px rgba(0,0,0,.06);
+  transition:transform .15s ease;
+}
+.card:hover{transform:translateY(-3px)}
+.card .img{position:absolute;inset:0;background-size:cover;background-position:center}
+.card .emoji{position:absolute;inset:0;display:grid;place-items:center;font-size:52px}
+.card .scrim{
+  position:relative;z-index:1;padding:12px 12px 10px;color:#fff;
+  background:linear-gradient(to top, rgba(0,0,0,.75), rgba(0,0,0,.3) 65%, transparent);
+}
+.card:not(.has-img) .scrim{color:var(--ink);background:linear-gradient(to top, rgba(0,0,0,.06), transparent)}
+.card .title{font-family:var(--title-font);font-weight:700;font-size:15px;line-height:1.2}
+.card .note{font-size:11.5px;opacity:.85;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .move{
+  position:absolute;top:8px;z-index:2;width:26px;height:26px;border-radius:50%;
+  border:none;background:rgba(0,0,0,.4);color:#fff;font-size:12px;display:grid;place-items:center;cursor:pointer;
+}
+.card .move.l{left:8px}
+.card .move.r{right:8px}
+.card .move:hover{background:rgba(0,0,0,.6)}
+
+/* ---- modal ---- */
+.scrim-bg{position:fixed;inset:0;background:rgba(20,15,12,.5);display:none;z-index:40}
+.scrim-bg.show{display:block}
+.modal{
+  position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:100%;max-width:480px;
+  max-height:88vh;overflow-y:auto;background:var(--card);border-radius:22px 22px 0 0;
+  padding:22px 22px 30px;z-index:50;display:none;box-shadow:0 -10px 40px rgba(0,0,0,.25);
+}
+@media (min-width:600px){
+  .modal{
+    bottom:auto;top:50%;transform:translate(-50%,-50%);border-radius:22px;max-height:85vh;
+  }
+}
+.modal.show{display:block}
+.modal .handle{width:36px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 16px}
+@media (min-width:600px){ .modal .handle{display:none} }
+.modal h2{font-family:var(--title-font);margin:0 0 16px;font-size:20px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin-bottom:5px}
+.field input[type=text]{
+  width:100%;font:inherit;color:var(--ink);background:var(--bg1);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;
+}
+.field input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.picrow{display:flex;align-items:center;gap:14px}
+.picpreview{
+  width:68px;height:68px;border-radius:14px;background:var(--bg1);border:1px solid var(--line);
+  display:grid;place-items:center;font-size:30px;background-size:cover;background-position:center;flex:none;
+}
+.emojipick{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.emojipick button{
+  width:32px;height:32px;border-radius:8px;border:1.5px solid var(--line);background:var(--bg1);
+  font-size:15px;cursor:pointer;
+}
+.emojipick button.on{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 15%, var(--bg1))}
+.modal-actions{display:flex;flex-direction:column;gap:8px;margin-top:18px}
+.btn.block{width:100%;justify-content:center}
+.btn.danger{background:#c43c3c;color:#fff;border-color:#c43c3c}
+
+.footer-actions{
+  display:flex;justify-content:center;gap:10px;margin-top:34px;flex-wrap:wrap;
+}
+
+.fab{
+  position:fixed;right:24px;bottom:24px;width:58px;height:58px;border-radius:50%;border:none;
+  background:var(--accent);color:#fff;font-size:28px;line-height:1;display:grid;place-items:center;
+  box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer;z-index:35;
+}
+
+.toast{
+  position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+  background:var(--ink);color:var(--bg1);padding:10px 18px;border-radius:999px;font-size:13px;
+  font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:60;max-width:90vw;text-align:center;
+}
+.toast.show{opacity:1;transform:translateX(-50%)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>My <span class="accent">Vision</span> Board</h1>
+    <div class="tagline" id="tagline" contenteditable="true" spellcheck="false">tap to write your own tagline</div>
+    <div class="toolbar">
+      <div class="swatches" id="swatches">
+        <button class="swatch" data-t="rose" title="Rose"></button>
+        <button class="swatch" data-t="teal" title="Teal"></button>
+        <button class="swatch" data-t="gold" title="Gold"></button>
+        <button class="swatch" data-t="indigo" title="Indigo"></button>
+        <button class="swatch" data-t="dark" title="Dark"></button>
+      </div>
+      <button class="btn small" onclick="exportBoard()">⬇ Export</button>
+      <label class="btn small" style="cursor:pointer">⬆ Import<input type="file" accept="application/json" id="importFile" style="display:none" onchange="importBoard(event)"></label>
+    </div>
+  </header>
+
+  <div class="presets" id="presets"></div>
+
+  <div id="empty">Nothing on your board yet — tap a preset above or the ＋ button to add your first dream.</div>
+  <div id="board"></div>
+
+  <div class="footer-actions"></div>
+</div>
+
+<button class="fab" onclick="openItem()" title="Add to board">＋</button>
+
+<div class="scrim-bg" id="scrimBg" onclick="closeModal()"></div>
+<div class="modal" id="modal" role="dialog" aria-label="Vision board item">
+  <div class="handle"></div>
+  <h2 id="modalTitle">＋ New dream</h2>
+  <div class="field">
+    <label for="f-title">Title</label>
+    <input type="text" id="f-title" placeholder="e.g. Dream car" maxlength="40">
+  </div>
+  <div class="field">
+    <label>Photo <span style="font-weight:400;color:var(--ink2)">(optional)</span></label>
+    <div class="picrow">
+      <div class="picpreview" id="picPreview">✨</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label class="btn small" style="cursor:pointer">Upload photo<input type="file" accept="image/*" id="f-file" style="display:none" onchange="handleFile(event)"></label>
+        <button class="btn small" onclick="clearPhoto()">Remove photo</button>
+      </div>
+    </div>
+    <div class="emojipick" id="emojiPick"></div>
+  </div>
+  <div class="field">
+    <label for="f-note">Notes <span style="font-weight:400;color:var(--ink2)">(optional)</span></label>
+    <input type="text" id="f-note" placeholder="e.g. Manual, dark green, under $40k" maxlength="120">
+  </div>
+  <div class="modal-actions">
+    <button class="btn primary block" onclick="saveItem()">Save to board</button>
+    <button class="btn danger block" id="deleteBtn" style="display:none" onclick="deleteItem()">🗑 Remove from board</button>
+    <button class="btn ghost block" onclick="closeModal()">Cancel</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ====================================================================
+   QUICK-EDIT ZONE — presets shown as one-tap chips, and the emoji
+   fallback options in the modal. Edit these two arrays freely.
+   ==================================================================== */
+const PRESETS = [
+  { t:'Dream car',      e:'🚗' }, { t:'Dream home',     e:'🏡' },
+  { t:'Dream vacation', e:'✈️' }, { t:'Dream career',   e:'💼' },
+  { t:'Dream wedding',  e:'💍' }, { t:'Fitness goal',   e:'💪' },
+  { t:'Financial goal', e:'💰' }, { t:'Bucket list',    e:'📜' },
+];
+const EMOJIS = ['🚗','🏡','✈️','💍','💼','💪','💰','📜','🐾','🎓','⛵','🏝️','🎸','📷','🌍','🏆','🎯','👗','🍿','☕'];
+/* ==================================================================== */
+
+const STORE_KEY = 'myVisionBoard_items';
+const THEME_KEY = 'myVisionBoard_theme';
+const TAGLINE_KEY = 'myVisionBoard_tagline';
+
+let items = [];
+let draft = null; // { id, title, note, img, emoji } while modal is open
+
+function $(s){ return document.querySelector(s); }
+function load(){ try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch(e){ return []; } }
+function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(items)); }
+function escHTML(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ---------- theme + tagline ---------- */
+function applyTheme(name){
+  document.body.dataset.theme = name;
+  localStorage.setItem(THEME_KEY, name);
+  document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.t === name));
+}
+$('#swatches').addEventListener('click', e => {
+  const b = e.target.closest('.swatch');
+  if (b) applyTheme(b.dataset.t);
+});
+$('#tagline').addEventListener('blur', () => {
+  localStorage.setItem(TAGLINE_KEY, $('#tagline').textContent.trim());
+});
+
+/* ---------- presets ---------- */
+function drawPresets(){
+  $('#presets').innerHTML = PRESETS.map(p =>
+    `<button class="preset" onclick="openItem(null,'${p.t.replace(/'/g,"\\'")}','${p.e}')">${p.e} ${escHTML(p.t)}</button>`
+  ).join('');
+}
+
+/* ---------- board render ---------- */
+function render(){
+  $('#empty').style.display = items.length ? 'none' : '';
+  $('#board').innerHTML = items.map((it, ix) => cardHTML(it, ix)).join('');
+}
+function cardHTML(it, ix){
+  const bg = it.img
+    ? `<div class="img" style="background-image:url('${it.img}')"></div>`
+    : `<div class="emoji">${it.emoji || '✨'}</div>`;
+  const l = ix > 0 ? `<button class="move l" onclick="event.stopPropagation();moveItem('${it.id}',-1)">◀</button>` : '';
+  const r = ix < items.length - 1 ? `<button class="move r" onclick="event.stopPropagation();moveItem('${it.id}',1)">▶</button>` : '';
+  return `<div class="card${it.img ? ' has-img' : ''}" onclick="openItem('${it.id}')">` +
+    bg + l + r +
+    `<div class="scrim"><div class="title">${escHTML(it.title)}</div>` +
+    (it.note ? `<div class="note">${escHTML(it.note)}</div>` : '') +
+    `</div></div>`;
+}
+function moveItem(id, dir){
+  const i = items.findIndex(x => x.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= items.length) return;
+  [items[i], items[j]] = [items[j], items[i]];
+  save(); render();
+}
+
+/* ---------- modal ---------- */
+function drawEmojiPicker(){
+  $('#emojiPick').innerHTML = EMOJIS.map(e =>
+    `<button type="button" class="${draft.emoji === e && !draft.img ? 'on' : ''}" onclick="pickEmoji('${e}')">${e}</button>`
+  ).join('');
+}
+function pickEmoji(e){
+  draft.emoji = e; draft.img = null;
+  renderPreview(); drawEmojiPicker();
+}
+function renderPreview(){
+  const el = $('#picPreview');
+  if (draft.img){ el.style.backgroundImage = `url('${draft.img}')`; el.textContent = ''; }
+  else { el.style.backgroundImage = 'none'; el.textContent = draft.emoji || '✨'; }
+}
+function openItem(id, presetTitle, presetEmoji){
+  const existing = id ? items.find(x => x.id === id) : null;
+  draft = existing ? { ...existing } : { id:null, title: presetTitle || '', note:'', img:null, emoji: presetEmoji || '✨' };
+  $('#modalTitle').textContent = existing ? '✎ Edit dream' : '＋ New dream';
+  $('#f-title').value = draft.title;
+  $('#f-note').value = draft.note;
+  $('#deleteBtn').style.display = existing ? '' : 'none';
+  renderPreview(); drawEmojiPicker();
+  $('#scrimBg').classList.add('show');
+  $('#modal').classList.add('show');
+}
+function closeModal(){
+  $('#scrimBg').classList.remove('show');
+  $('#modal').classList.remove('show');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+function handleFile(ev){
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const maxDim = 900;
+      let w = img.width, h = img.height;
+      if (w > maxDim || h > maxDim){
+        if (w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+        else { w = Math.round(w * maxDim / h); h = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      draft.img = canvas.toDataURL('image/jpeg', 0.75);
+      renderPreview(); drawEmojiPicker();
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+function clearPhoto(){ draft.img = null; renderPreview(); drawEmojiPicker(); }
+
+function saveItem(){
+  const title = $('#f-title').value.trim();
+  if (!title){ toast('Give it a title first'); return; }
+  draft.title = title.slice(0, 40);
+  draft.note = $('#f-note').value.trim().slice(0, 120);
+  const ix = draft.id ? items.findIndex(x => x.id === draft.id) : -1;
+  if (ix >= 0) items[ix] = draft;
+  else { draft.id = 'v' + Date.now() + Math.random().toString(36).slice(2,7); items.push(draft); }
+  save(); closeModal(); render();
+  toast('Saved to your board ✨');
+}
+function deleteItem(){
+  if (!draft || !draft.id) return;
+  if (!confirm(`Remove "${draft.title}" from your vision board?`)) return;
+  items = items.filter(x => x.id !== draft.id);
+  save(); closeModal(); render();
+}
+
+/* ---------- export / import (backup) ---------- */
+function exportBoard(){
+  const blob = new Blob([JSON.stringify({ items, tagline: $('#tagline').textContent, theme: document.body.dataset.theme }, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'vision-board.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function importBoard(ev){
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data.items)) throw new Error('bad file');
+      if (!confirm('Replace your current board with this file?')) return;
+      items = data.items;
+      save();
+      if (data.tagline){ $('#tagline').textContent = data.tagline; localStorage.setItem(TAGLINE_KEY, data.tagline); }
+      if (data.theme){ applyTheme(data.theme); }
+      render();
+      toast('Board imported ✨');
+    } catch(e){ toast('Could not read that file'); }
+  };
+  reader.readAsText(file);
+}
+
+/* ---------- init ---------- */
+applyTheme(localStorage.getItem(THEME_KEY) || 'rose');
+const savedTagline = localStorage.getItem(TAGLINE_KEY);
+if (savedTagline) $('#tagline').textContent = savedTagline;
+drawPresets();
+items = load();
+render();
+</script>
+</body>
+</html>
