@@ -88,7 +88,6 @@
     <button class="tab" data-t="glpr">MILESTONES</button>
     <button class="tab" data-t="plannit">PLANNIT</button>
     <button class="tab" data-t="search">SEARCH</button>
-    <button class="tab" data-t="vision">VISION</button>
   </nav>
 </header>
 
@@ -290,22 +289,6 @@
   </div>
 
   <button class="fab" id="pl-fab" onclick="openCreatePlannit()" title="New plan">＋</button>
-</section>
-
-<!-- ================= VISION ================= -->
-<section class="panel" id="p-vision" style="position:relative">
-  <div class="eyebrow" style="margin-top:0">Your vision board</div>
-  <div class="sub" style="margin-bottom:12px">Dream car, dream home, whatever's next — add it, swap the photo, or replace it anytime.</div>
-
-  <div class="eyebrow">Quick add</div>
-  <div class="chiprow" id="vision-presets"></div>
-
-  <div class="card" id="vision-empty" style="display:none;margin-top:14px">
-    <div class="sub">Nothing on your board yet — tap a preset above or ＋ to add your first dream.</div>
-  </div>
-  <div class="visiongrid" id="vision-grid"></div>
-
-  <button class="fab" id="vision-fab" onclick="openVisionItem()" title="Add to board">＋</button>
 </section>
 
 <!-- ================= SEARCH ================= -->
@@ -547,28 +530,6 @@
     <div class="audsel single" id="goal-aud"></div>
   </div>
   <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px" onclick="submitNewGoal()">Create goal</button>
-</div>
-
-<div class="sheet" id="sheet-visionitem" role="dialog" aria-label="Vision board item">
-  <div class="handle"></div>
-  <h3 id="vision-sheet-title">＋ New dream</h3>
-  <div class="profrow"><label for="vi-title">Title</label>
-    <input id="vi-title" placeholder="e.g. Dream car" maxlength="40" style="width:100%"></div>
-  <div class="profrow"><label>Photo <span class="optbadge">OPTIONAL</span></label>
-    <div class="visionpicpick">
-      <div class="visionpicpreview" id="vi-preview">✨</div>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <label class="btn small" style="cursor:pointer;justify-content:center">Upload photo<input type="file" accept="image/*" id="vi-file" style="display:none" onchange="handleVisionFile(event)"></label>
-        <button class="btn small" onclick="clearVisionPhoto()">Remove photo</button>
-      </div>
-    </div>
-    <div class="sub" style="margin-top:8px">No photo? Pick an emoji instead:</div>
-    <div class="chiprow" id="vi-emojipick" style="margin-top:6px"></div>
-  </div>
-  <div class="profrow"><label for="vi-note">Notes <span class="optbadge">OPTIONAL</span></label>
-    <input id="vi-note" placeholder="e.g. Manual, dark green, under $40k" style="width:100%"></div>
-  <button class="btn primary" style="width:100%;justify-content:center;margin-top:6px" onclick="saveVisionItem()">Save to board</button>
-  <button class="btn danger" id="vi-delete-btn" style="width:100%;justify-content:center;margin-top:8px;display:none" onclick="deleteVisionItem()">🗑️ Remove from board</button>
 </div>
 
 <!-- ============ notes sheet ============ -->

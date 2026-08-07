@@ -44,7 +44,6 @@ function showPanel(t){
   if (t === 'frds' && me) loadFriendsFeed();
   if (t === 'plannit' && me) { closePlannitDetail(); loadPlannitFeed(); }
   if (t === 'search' && me) { loadSearchData(); startSearchPoll(); } else { stopSearchPoll(); }
-  if (t === 'vision' && me) renderVisionBoard();
 }
 $('#tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
@@ -295,7 +294,6 @@ async function enterApp(){
   drawGoalCards();
   loadSearchData();
   loadPlannitFeed();
-  renderVisionBoard();
   startReqBadgePoll();
   startMsgBadgePoll();
 }
@@ -2736,157 +2734,6 @@ async function openPlannitFromSearch(id){
   showPanel('plannit');
   await loadPlannitFeed();
   openPlannitDetailById(id);
-}
-
-/* ---------- VISION BOARD ----------
-   Personal, per-account board of swappable dream cards (car, home,
-   vacation, whatever). Client-only — persisted in localStorage under
-   the signed-in username, same tier as profile/activity usage. Each
-   card is {id, title, note, img (compressed data URL) or emoji}. */
-const VISION_PRESETS = [
-  { t:'Dream car',      e:'🚗' }, { t:'Dream home',     e:'🏡' },
-  { t:'Dream vacation', e:'✈️' }, { t:'Dream career',   e:'💼' },
-  { t:'Dream wedding',  e:'💍' }, { t:'Fitness goal',   e:'💪' },
-  { t:'Financial goal', e:'💰' }, { t:'Bucket list',    e:'📜' },
-];
-const VISION_EMOJIS = ['🚗','🏡','✈️','💍','💼','💪','💰','📜','🐾','🎓','⛵','🏝️','🎸','📷','🌍','🏆','🎯','👗'];
-
-let visionItems = [];
-let visionDraft = null; /* { id, title, note, img, emoji } while the sheet is open */
-
-function visionKey(){ return 'cb_vision_' + (me ? me.username : 'guest'); }
-function loadVisionItems(){ visionItems = load(visionKey(), []); }
-function saveVisionItems(){ store(visionKey(), visionItems); }
-
-function renderVisionBoard(){
-  loadVisionItems();
-  drawVisionPresets();
-  const grid = $('#vision-grid');
-  $('#vision-empty').style.display = visionItems.length ? 'none' : '';
-  grid.innerHTML = visionItems.map((it, ix) => visionCardHTML(it, ix)).join('');
-}
-
-function drawVisionPresets(){
-  $('#vision-presets').innerHTML = VISION_PRESETS.map(p =>
-    `<button class="chip add" onclick="openVisionItem(null, '${escJS(p.t)}', '${p.e}')">${p.e} ${escHTML(p.t)}</button>`
-  ).join('');
-}
-
-function visionCardHTML(it, ix){
-  const bg = it.img
-    ? `<div class="vc-img" style="background-image:url('${it.img}')"></div>`
-    : `<div class="vc-emoji">${it.emoji || '✨'}</div>`;
-  const moveLeft = ix > 0 ? `<button class="vc-move left" title="Move earlier" onclick="event.stopPropagation();moveVisionItem('${it.id}',-1)">◀</button>` : '';
-  const moveRight = ix < visionItems.length - 1 ? `<button class="vc-move right" title="Move later" onclick="event.stopPropagation();moveVisionItem('${it.id}',1)">▶</button>` : '';
-  return `<div class="visioncard" onclick="openVisionItem('${it.id}')">` +
-    bg + moveLeft + moveRight +
-    `<div class="vc-scrim"><div class="vc-title">${escHTML(it.title)}</div>` +
-    (it.note ? `<div class="vc-note">${escHTML(it.note)}</div>` : '') +
-    `</div></div>`;
-}
-
-function moveVisionItem(id, dir){
-  const ix = visionItems.findIndex(x => x.id === id);
-  const swapIx = ix + dir;
-  if (ix < 0 || swapIx < 0 || swapIx >= visionItems.length) return;
-  [visionItems[ix], visionItems[swapIx]] = [visionItems[swapIx], visionItems[ix]];
-  saveVisionItems();
-  renderVisionBoard();
-}
-
-function drawVisionEmojiPicker(){
-  $('#vi-emojipick').innerHTML = VISION_EMOJIS.map(e =>
-    `<button class="chip${visionDraft.emoji === e && !visionDraft.img ? ' on' : ''}" onclick="pickVisionEmoji('${e}')">${e}</button>`
-  ).join('');
-}
-function pickVisionEmoji(e){
-  visionDraft.emoji = e;
-  visionDraft.img = null;
-  renderVisionPreview();
-  drawVisionEmojiPicker();
-}
-
-function renderVisionPreview(){
-  const el = $('#vi-preview');
-  if (visionDraft.img){
-    el.style.backgroundImage = `url('${visionDraft.img}')`;
-    el.textContent = '';
-  } else {
-    el.style.backgroundImage = 'none';
-    el.textContent = visionDraft.emoji || '✨';
-  }
-}
-
-function openVisionItem(id, presetTitle, presetEmoji){
-  const existing = id ? visionItems.find(x => x.id === id) : null;
-  visionDraft = existing
-    ? { ...existing }
-    : { id: null, title: presetTitle || '', note: '', img: null, emoji: presetEmoji || '✨' };
-  $('#vision-sheet-title').textContent = existing ? '✎ Edit dream' : '＋ New dream';
-  $('#vi-title').value = visionDraft.title;
-  $('#vi-note').value = visionDraft.note;
-  $('#vi-delete-btn').style.display = existing ? '' : 'none';
-  renderVisionPreview();
-  drawVisionEmojiPicker();
-  openSheet('visionitem');
-}
-
-function handleVisionFile(ev){
-  const file = ev.target.files && ev.target.files[0];
-  ev.target.value = '';
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      const maxDim = 900;
-      let w = img.width, h = img.height;
-      if (w > maxDim || h > maxDim){
-        if (w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
-        else { w = Math.round(w * maxDim / h); h = maxDim; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      visionDraft.img = canvas.toDataURL('image/jpeg', 0.75);
-      renderVisionPreview();
-      drawVisionEmojiPicker();
-    };
-    img.src = reader.result;
-  };
-  reader.readAsDataURL(file);
-}
-function clearVisionPhoto(){
-  visionDraft.img = null;
-  renderVisionPreview();
-  drawVisionEmojiPicker();
-}
-
-function saveVisionItem(){
-  const title = $('#vi-title').value.trim();
-  if (!title){ toast('Give it a title first'); return; }
-  visionDraft.title = title.slice(0, 40);
-  visionDraft.note = $('#vi-note').value.trim().slice(0, 120);
-  const ix = visionDraft.id ? visionItems.findIndex(x => x.id === visionDraft.id) : -1;
-  if (ix >= 0){
-    visionItems[ix] = visionDraft;
-  } else {
-    visionDraft.id = 'v' + Date.now() + Math.random().toString(36).slice(2, 7);
-    visionItems.push(visionDraft);
-  }
-  saveVisionItems();
-  closeSheets();
-  renderVisionBoard();
-  toast('Saved to your vision board ✨');
-}
-
-function deleteVisionItem(){
-  if (!visionDraft || !visionDraft.id) return;
-  if (!confirm(`Remove "${visionDraft.title}" from your vision board?`)) return;
-  visionItems = visionItems.filter(x => x.id !== visionDraft.id);
-  saveVisionItems();
-  closeSheets();
-  renderVisionBoard();
 }
 
 /* ---------- SEARCH ----------
