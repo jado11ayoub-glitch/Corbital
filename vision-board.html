@@ -76,13 +76,36 @@ h1 .accent{color:var(--accent)}
 .btn.ghost{background:transparent}
 .btn.small{padding:6px 12px;font-size:12px}
 
-.presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:18px 0 28px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:18px 0 20px}
 .preset{
   display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;
   background:var(--card);border:1.5px dashed var(--line);color:var(--ink2);
   font-size:13px;cursor:pointer;font-family:inherit;
 }
 .preset:hover{border-color:var(--accent);color:var(--ink)}
+
+/* ---- browse panel ---- */
+.browsewrap{max-width:520px;margin:0 auto 30px;text-align:center}
+.browsetoggle{display:flex;gap:8px;justify-content:center}
+.browsepanel{
+  display:none;margin-top:14px;padding:16px;border-radius:16px;
+  background:var(--card);border:1px solid var(--line);text-align:left;
+}
+.browsepanel.show{display:block}
+.browsepanel .sub{font-size:12.5px;color:var(--ink2);margin-bottom:10px}
+.browsepanel input[type=text]{
+  width:100%;font:inherit;color:var(--ink);background:var(--bg1);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;margin-bottom:10px;
+}
+.browsepanel input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.sitechips{display:flex;flex-wrap:wrap;gap:8px}
+.sitechip{
+  display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:999px;
+  background:var(--bg1);border:1px solid var(--line);color:var(--ink);text-decoration:none;
+  font-size:12.5px;font-weight:600;
+}
+.sitechip:hover{border-color:var(--accent)}
+.browsepanel .hint{font-size:11.5px;color:var(--ink2);margin-top:10px}
 
 #empty{text-align:center;color:var(--ink2);padding:50px 20px;font-size:14px}
 
@@ -194,6 +217,19 @@ h1 .accent{color:var(--accent)}
 
   <div class="presets" id="presets"></div>
 
+  <div class="browsewrap">
+    <div class="browsetoggle">
+      <button class="btn small" onclick="toggleBrowse('cars')">🚗 Browse dream cars</button>
+      <button class="btn small" onclick="toggleBrowse('homes')">🏡 Browse dream homes</button>
+    </div>
+    <div class="browsepanel" id="browsePanel">
+      <div class="sub" id="browseLabel">Search real listings, find the one, then bring it back here.</div>
+      <input type="text" id="browseKeyword" placeholder="e.g. Tesla Model 3 under 40k">
+      <div class="sitechips" id="browseSites"></div>
+      <div class="hint">On the listing site: right-click the photo → <b>Copy image address</b>, then paste it into the <b>Photo URL</b> field when you add the card.</div>
+    </div>
+  </div>
+
   <div id="empty">Nothing on your board yet — tap a preset above or the ＋ button to add your first dream.</div>
   <div id="board"></div>
 
@@ -219,6 +255,7 @@ h1 .accent{color:var(--accent)}
         <button class="btn small" onclick="clearPhoto()">Remove photo</button>
       </div>
     </div>
+    <input type="text" id="f-imgurl" placeholder="Or paste a photo URL — e.g. from a listing you browsed" style="margin-top:10px" oninput="handleImgUrl(event)">
     <div class="emojipick" id="emojiPick"></div>
   </div>
   <div class="field">
@@ -246,6 +283,18 @@ const PRESETS = [
   { t:'Financial goal', e:'💰' }, { t:'Bucket list',    e:'📜' },
 ];
 const EMOJIS = ['🚗','🏡','✈️','💍','💼','💪','💰','📜','🐾','🎓','⛵','🏝️','🎸','📷','🌍','🏆','🎯','👗','🍿','☕'];
+
+/* Real listing sites to browse, per category — search opens in a new tab.
+   Uses each site's Google-indexed pages (site:domain) rather than guessing
+   each one's internal search-URL format, so this stays correct even if a
+   site changes its own query params. Add/remove sites freely. */
+const BROWSE_SITES = {
+  cars:  { label:'Search real cars for sale — copy a photo you love, bring it back here.',
+           sites: [ ['Cars.com','cars.com'], ['AutoTrader','autotrader.com'], ['CarGurus','cargurus.com'], ['Carvana','carvana.com'], ['CarMax','carmax.com'] ] },
+  homes: { label:'Search real homes for sale — copy a photo you love, bring it back here.',
+           sites: [ ['Zillow','zillow.com'], ['Realtor.com','realtor.com'], ['Redfin','redfin.com'], ['Trulia','trulia.com'], ['Homes.com','homes.com'] ] },
+};
+let browseCategory = 'cars';
 /* ==================================================================== */
 
 const STORE_KEY = 'myVisionBoard_items';
@@ -289,6 +338,30 @@ function drawPresets(){
   ).join('');
 }
 
+/* ---------- browse real listings ---------- */
+function toggleBrowse(cat){
+  const panel = $('#browsePanel');
+  if (panel.classList.contains('show') && browseCategory === cat){
+    panel.classList.remove('show');
+    return;
+  }
+  browseCategory = cat;
+  $('#browseLabel').textContent = BROWSE_SITES[cat].label;
+  drawBrowseSites();
+  panel.classList.add('show');
+}
+function drawBrowseSites(){
+  $('#browseSites').innerHTML = BROWSE_SITES[browseCategory].sites.map(([name, domain]) =>
+    `<a class="sitechip" href="#" onclick="return openBrowseSite('${domain}')">🔎 ${escHTML(name)}</a>`
+  ).join('');
+}
+function openBrowseSite(domain){
+  const kw = $('#browseKeyword').value.trim();
+  const q = kw ? `${kw} site:${domain}` : `site:${domain}`;
+  window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`, '_blank', 'noopener');
+  return false;
+}
+
 /* ---------- board render ---------- */
 function render(){
   $('#empty').style.display = items.length ? 'none' : '';
@@ -322,6 +395,7 @@ function drawEmojiPicker(){
 }
 function pickEmoji(e){
   draft.emoji = e; draft.img = null;
+  $('#f-imgurl').value = '';
   renderPreview(); drawEmojiPicker();
 }
 function renderPreview(){
@@ -335,6 +409,7 @@ function openItem(id, presetTitle, presetEmoji){
   $('#modalTitle').textContent = existing ? '✎ Edit dream' : '＋ New dream';
   $('#f-title').value = draft.title;
   $('#f-note').value = draft.note;
+  $('#f-imgurl').value = (draft.img && /^https?:\/\//.test(draft.img)) ? draft.img : '';
   $('#deleteBtn').style.display = existing ? '' : 'none';
   renderPreview(); drawEmojiPicker();
   $('#scrimBg').classList.add('show');
@@ -350,6 +425,7 @@ function handleFile(ev){
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
   if (!file) return;
+  $('#f-imgurl').value = '';
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
@@ -370,7 +446,15 @@ function handleFile(ev){
   };
   reader.readAsDataURL(file);
 }
-function clearPhoto(){ draft.img = null; renderPreview(); drawEmojiPicker(); }
+/* pasted URLs are kept as plain links (not compressed/embedded) — most
+   listing-site images are cross-origin and can't be redrawn onto a
+   canvas, but the browser can still display them directly just fine. */
+function handleImgUrl(ev){
+  const url = ev.target.value.trim();
+  draft.img = url || null;
+  renderPreview(); drawEmojiPicker();
+}
+function clearPhoto(){ draft.img = null; $('#f-imgurl').value = ''; renderPreview(); drawEmojiPicker(); }
 
 function saveItem(){
   const title = $('#f-title').value.trim();
