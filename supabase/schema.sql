@@ -1627,10 +1627,7 @@ begin
 end $$;
 grant execute on function verify_code(text,text) to anon;
 
--- ---------- demo accounts (password: friends1) ----------
-insert into accounts(username, display_name, avatar, password_hash) values
-  ('maya','Maya 🏋️','🐆', crypt('friends1', gen_salt('bf'))),
-  ('sam','Sam ⚡','⚡', crypt('friends1', gen_salt('bf'))),
-  ('dev','Dev 📚','🎧', crypt('friends1', gen_salt('bf'))),
-  ('lena','Lena 🏃','🌊', crypt('friends1', gen_salt('bf')))
-on conflict (username) do nothing;
+-- previously seeded demo accounts (maya/sam/dev/lena) — removed, along
+-- with anything attached to them (friendships, plans, etc. cascade).
+-- idempotent: a no-op once they're gone.
+delete from accounts where username in ('maya','sam','dev','lena');

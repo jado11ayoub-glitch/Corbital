@@ -121,13 +121,13 @@ function setAuthMode(m){
   $('#gf-remail').style.display = isFp ? 'block' : 'none';
   $('#gf-user').style.display = isFp ? 'none' : 'block';
   $$('#authseg button').forEach(x => x.classList.toggle('on', x.dataset.m === m));
-  $('#gf-name').style.display = m === 'up' ? 'block' : 'none';
   $('#gf-email').style.display = m === 'up' ? 'block' : 'none';
   $('#gf-code').style.display = 'none';
   $('#g-pass').parentElement.style.display = isFp ? 'none' : 'block';
   $('#g-passlabel').textContent = 'Password';
   $('#g-forgot').style.display = m === 'in' ? 'inline-flex' : 'none';
   $('#g-back').style.display = isFp ? 'inline-flex' : 'none';
+  $('#g-guest').style.display = isFp ? 'none' : 'inline-flex';
   $('#g-go').textContent = isFp ? 'Send code' : (m === 'up' ? 'Create account' : 'Sign in');
   $('#g-pass').autocomplete = m === 'up' ? 'new-password' : 'current-password';
   $('#g-err').textContent = '';
@@ -142,7 +142,7 @@ $('#authseg').addEventListener('click', e => {
 /* ---------- forgot password (needs a linked email) ---------- */
 let fp = null;   /* { stage, key, code } */
 function startForgot(){ setAuthMode('fp'); }
-['g-user','g-pass','g-name','g-remail','g-code'].forEach(id => {
+['g-user','g-pass','g-remail','g-code'].forEach(id => {
   document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') authSubmit(); });
 });
 
@@ -206,8 +206,8 @@ async function authSubmit(){
   if (!USER_RE.test(user)) { err('Username: 3–20 characters, only letters, numbers and _'); return; }
 
   if (authMode === 'up') {
-    let dn = $('#g-name').value.trim() || user;
-    if (!isCleanName(dn)) { err('Pick a friendlier display name 🙂'); return; }
+    const dn = user;
+    if (!isCleanName(dn)) { err('Pick a friendlier username 🙂'); return; }
     if (pass.length <= 6) { err('Password has to be more than 6 characters'); return; }
     const rawEmail = $('#g-email').value.trim();
     let email = '';
@@ -236,6 +236,30 @@ async function authSubmit(){
     store('cb_me', { username: data.username, displayName: data.display_name, av: data.avatar });
     await enterApp();
     toast(`Welcome back, ${data.display_name}`);
+  }
+}
+
+/* for people who just want to try Plannit without a real account —
+   spins up a throwaway account behind the scenes and drops them straight
+   in. Same signup RPC as everyone else, so it works identically to a
+   real account (friends, plans, everything) — it's just a random
+   username nobody chose on purpose. */
+async function continueAsGuest(){
+  const err = m => { $('#g-err').textContent = m; };
+  err('');
+  const btn = $('#g-guest');
+  btn.disabled = true;
+  try {
+    const user = 'guest' + Date.now().toString(36) + Math.floor(Math.random() * 100);
+    const pass = 'guest' + Math.random().toString(36).slice(2, 10);
+    const { data, error } = await sb.rpc('signup', { p_username: user, p_display_name: user, p_password: pass, p_email: null });
+    if (error || !data.ok) { err('Could not start a guest session — try again'); return; }
+    const av = AVATARS[Math.floor(Math.random() * AVATARS.length)];
+    store('cb_me', { username: user, displayName: user, av });
+    await enterApp();
+    toast('You\'re in as a guest — this account lives only on this device');
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -877,10 +901,10 @@ async function confirmCancelYes(){
 
 /* ---------- SCHD: activity chips (favorites + sorted by usage) ---------- */
 let acts = load('cb_acts', [
-  { n:'Gym',   c:'var(--gym)',   fav:true,  uses:34 },
-  { n:'Run',   c:'var(--run)',   fav:false, uses:21 },
-  { n:'Study', c:'var(--study)', fav:false, uses:18 },
-  { n:'Swim',  c:'var(--swim)',  fav:false, uses:12 },
+  { n:'Gym',   c:'var(--gym)',   fav:false, uses:0 },
+  { n:'Run',   c:'var(--run)',   fav:false, uses:0 },
+  { n:'Study', c:'var(--study)', fav:false, uses:0 },
+  { n:'Swim',  c:'var(--swim)',  fav:false, uses:0 },
 ]);
 const pickColors = ['var(--gym)','var(--run)','var(--swim)','var(--study)','var(--other)',
                     'var(--pink)','var(--amber)','var(--crimson)','var(--sky)','var(--moss)'];
@@ -1234,77 +1258,6 @@ function sendFriendReq(){
   toast(`Friend request sent to ${n} — they appear in your feed once they accept 🤝`);
 }
 
-/* ---------- FRDS feed ---------- */
-/* main = the activity (big, bold, colored); sub = the specifics underneath */
-const feed = [
-  { who:'Maya', ini:'M', when:'20 min ago · Gym crew', kind:'range', c:'var(--gym)',
-    main:'Gym', label:'PLAN', txt:'Tonight — anyone in?', from:'6 PM', to:'10 PM', joins:1 },
-  { who:'Dev',  ini:'D', when:'1 h ago · Study group', kind:'ask', c:'var(--study)',
-    main:'Study', label:'ASK', txt:'Anyone have notes for BIO120 lecture 8? Missed it 😭', replies:2 },
-  { who:'Sam',  ini:'S', when:'3 h ago · Everyone', kind:'goal', c:'var(--gym)',
-    main:'Gym', label:'NEW GOAL', txt:'Bench 185 lb by Sept 🎯', enc:4 },
-  { who:'Lena', ini:'L', when:'Yesterday · Close friends', kind:'done', c:'var(--run)',
-    main:'Run', label:'PR · GOAL COMPLETE', txt:'5k in 23:58 🏁', congrats:9 },
-  { who:'Maya', ini:'M', when:'Yesterday · Everyone', kind:'invite', c:'var(--pink)',
-    main:'Hangout', label:'OPEN INVITE', txt:'New café on Bayview — anyone wanna try it Sat around 2?', ins:2 },
-];
-
-function drawFeed(){
-  const box = $('#feed');
-  box.innerHTML = '';
-  feed.forEach((p, ix) => {
-    const el = document.createElement('div');
-    el.className = 'card post';
-    el.style.setProperty('--c', p.c);
-    let body =
-      `<div class="head"><div class="avatar">${p.ini}</div>` +
-      `<div><div class="who">${p.who}</div><div class="when">${p.when}</div></div>` +
-      `<span class="actbadge">${p.main}</span></div>` +
-      `<div class="kind">${p.label}</div><div class="subact">${p.txt}</div>`;
-
-    if (p.kind === 'range') {
-      body +=
-        `<div class="rangebar" style="--c:${p.c}"><span class="mono">${p.from}</span>` +
-        `<div class="track"><i style="left:0;right:0"></i></div><span class="mono">${p.to}</span></div>` +
-        `<div class="actions">` +
-        `<button class="btn small primary" onclick="joinPlan(${ix}, this)">🙋 Request to join · <span class="count">${p.joins}</span></button>` +
-        `<button class="btn small" onclick="toggleReply(this)">⇄ Suggest a time</button></div>` +
-        `<div class="replybox"><div class="sub" style="margin-bottom:6px">Only needs to overlap with ${p.who}'s ${p.from}–${p.to} — going longer on your end is fine, you two can sort out the rest by message.</div>` +
-        `<div class="row"><select class="rf"><option value="17">5 PM</option><option value="18">6 PM</option><option value="19">7 PM</option><option value="20" selected>8 PM</option><option value="21">9 PM</option></select>` +
-        `<span class="sub">to</span><select class="rt"><option value="19">7 PM</option><option value="20">8 PM</option><option value="21" selected>9 PM</option><option value="22">10 PM</option><option value="23">11 PM</option></select>` +
-        `<input placeholder="e.g. chest & triceps" style="flex:1;min-width:120px"></div>` +
-        `<button class="btn small primary" onclick="suggestTime(this, '${p.who}')">Send suggestion</button></div>`;
-    }
-    if (p.kind === 'ask') {
-      body +=
-        `<div class="actions"><button class="btn small" onclick="toggleReply(this)">💬 Answer · <span class="count">${p.replies}</span></button></div>` +
-        `<div class="replybox"><div class="row"><input placeholder="I got you — sending after class" style="flex:1">` +
-        `<button class="btn small primary" onclick="sendReply(this)">Reply</button></div></div>`;
-    }
-    if (p.kind === 'goal') {
-      body +=
-        `<div class="actions">` +
-        `<button class="reaction" onclick="fireOnce(this, 'Encouragement sent ✓ — one tap, LinkedIn style')">👏 Encourage · <span class="count">${p.enc}</span></button>` +
-        `<button class="btn small" onclick="toast('Joined! This goal now shows in your GLPR with a shared-progress tag 🤝')">🤝 Join this goal</button></div>`;
-    }
-    if (p.kind === 'done') {
-      body +=
-        `<div class="actions">` +
-        `<button class="reaction" onclick="fireOnce(this, 'Congrats sent 🎉')">🎉 Congrats · <span class="count">${p.congrats}</span></button></div>`;
-    }
-    if (p.kind === 'invite') {
-      body +=
-        `<div class="actions">` +
-        `<button class="reaction" onclick="fireOnce(this, &quot;You're in — it lands on your Schedule for Sat ☕&quot;)">☕ I'm in · <span class="count">${p.ins}</span></button>` +
-        `<button class="btn small" onclick="toast('Suggested a different time — ${p.who} will see it on their post')">⇄ Suggest time</button></div>`;
-    }
-    el.innerHTML = body;
-    box.appendChild(el);
-  });
-}
-
-function toggleReply(btn){ btn.closest('.card').querySelector('.replybox').classList.toggle('show'); }
-
 /* ---------- real feed: what friends have actually posted to SCHD ---------- */
 /* shared by the FRIENDS feed and SEARCH -> Activity so a plan card looks
    and behaves identically everywhere it shows up */
@@ -1390,8 +1343,10 @@ async function loadFriendsFeed(){
 
 function drawFriendsFeed(){
   const box = $('#realfeed');
-  if (feedFilterMode === 'milestone') { box.innerHTML = ''; $('#feed').style.display = ''; return; }
-  $('#feed').style.display = feedFilterMode === 'all' ? '' : 'none';
+  if (feedFilterMode === 'milestone') {
+    box.innerHTML = '<div class="card sub">Milestones respect each goal\'s audience setting — open a friend\'s profile to see the ones they\'ve shared with you.</div>';
+    return;
+  }
   const items = feedFilterMode === 'all' ? friendsFeedCache : friendsFeedCache.filter(r => r.kind === feedFilterMode);
   box.innerHTML = items.length ? items.map(r => r.html).join('') : (feedFilterMode === 'all' ? '' : '<div class="sub">Nothing to show yet.</div>');
 }
@@ -1744,66 +1699,30 @@ function startMsgBadgePoll(){
 }
 function stopMsgBadgePoll(){ if (msgBadgeTimer) clearInterval(msgBadgeTimer); msgBadgeTimer = null; }
 
-function joinPlan(ix, btn){
-  if (btn.dataset.sent) { toast('Request already sent — waiting on ' + feed[ix].who); return; }
-  btn.dataset.sent = '1';
-  feed[ix].joins++;
-  btn.querySelector('.count').textContent = feed[ix].joins;
-  toast('Request sent — ' + feed[ix].who + ' gets a one-tap accept 🙌');
-}
-
-function suggestTime(btn, who){
-  const box = btn.closest('.replybox');
-  const f = +box.querySelector('.rf').value, t = +box.querySelector('.rt').value;
-  if (t <= f) { toast('End time has to be after start'); return; }
-  const note = box.querySelector('input').value.trim();
-  box.classList.remove('show');
-  const chip = document.createElement('div');
-  chip.className = 'notechip';
-  chip.textContent = `You proposed ${fmtT(f)}–${fmtT(t)}${note ? ' · ' + note : ''} ✓`;
-  btn.closest('.card').appendChild(chip);
-  toast(`Sent — message ${who} to lock in whatever overlap works for both of you`);
-}
-
-function sendReply(btn){ btn.closest('.replybox').classList.remove('show'); toast('Reply posted 💬'); }
-
-/* one-shot reaction buttons (encourage / congrats / I'm in) */
-function fireOnce(btn, msg){
-  if (btn.classList.contains('fired')) return;
-  btn.classList.add('fired');
-  const c = btn.querySelector('.count');
-  c.textContent = +c.textContent + 1;
-  toast(msg);
-}
-
 /* ---------- GLPR: all-time totals (month / year / ever) ---------- */
-const totals = {
-  Gym:   { c:'var(--gym)',   month:9,  year:64,  ever:180 },
-  Run:   { c:'var(--run)',   month:6,  year:41,  ever:97  },
-  Study: { c:'var(--study)', month:11, year:88,  ever:203 },
-  Swim:  { c:'var(--swim)',  month:3,  year:22,  ever:45  },
-};
+const totals = {};
 function bumpTotals(name, color){
   if (!totals[name]) totals[name] = { c:color, month:0, year:0, ever:0 };
   totals[name].month++; totals[name].year++; totals[name].ever++;
 }
 function drawTotals(){
   const box = $('#totals');
-  box.innerHTML = Object.entries(totals)
-    .sort((a, b) => b[1].ever - a[1].ever)
-    .map(([n, t]) =>
-      `<div class="statrow"><span class="swatch" style="--c:${t.c}"></span><span class="n">${n}</span>` +
-      `<span class="v"><b>${t.month}</b> this month · <b>${t.year}</b> this year · <b>${t.ever}</b> all-time</span></div>`
-    ).join('');
+  const entries = Object.entries(totals);
+  box.innerHTML = entries.length
+    ? entries.sort((a, b) => b[1].ever - a[1].ever).map(([n, t]) =>
+        `<div class="statrow"><span class="swatch" style="--c:${t.c}"></span><span class="n">${n}</span>` +
+        `<span class="v"><b>${t.month}</b> this month · <b>${t.year}</b> this year · <b>${t.ever}</b> all-time</span></div>`
+      ).join('')
+    : '<div class="sub">Log a session below to start tracking.</div>';
 }
 
 /* ---------- GLPR: weekly consistency + charts ---------- */
 const freq = {
   weeks: ['W1','W2','W3','W4'],
   series: [
-    { n:'Gym',   c:'var(--gym)',   v:[2,3,3,4] },
-    { n:'Run',   c:'var(--run)',   v:[1,2,2,3] },
-    { n:'Study', c:'var(--study)', v:[3,2,4,4] },
+    { n:'Gym',   c:'var(--gym)',   v:[0,0,0,0] },
+    { n:'Run',   c:'var(--run)',   v:[0,0,0,0] },
+    { n:'Study', c:'var(--study)', v:[0,0,0,0] },
   ],
 };
 
@@ -1853,10 +1772,7 @@ const LOG_DETAILS = {
 };
 let logAct = 'Gym';
 let logSel = [];
-const logbook = [
-  { act:'Gym', c:'var(--gym)', tags:['Legs'], when:'Yesterday' },
-  { act:'Run', c:'var(--run)', tags:['Tempo'], when:'Wed' },
-];
+const logbook = [];
 
 function drawLogger(){
   const ar = $('#log-acts');
@@ -2750,12 +2666,7 @@ const PLACEHOLDERS = {
   location:'Try “YMCA”, “Fairview”, “Don Mills”, “Bayview”…',
 };
 const searchData = {
-  location: { items:[
-    { s:'var(--swim)',  t:'YMCA — Maya · swim',      d:'Laps now until 3 PM', live:true },
-    { s:'var(--gym)',   t:'YMCA — Dev · lift',       d:'Planned 6–8 PM', live:false },
-    { s:'var(--other)', t:'Bayview — café invite',   d:'Sat ~2 PM · 2 going', live:false },
-    { s:'var(--run)',   t:'Don Mills — Sam · run',   d:'Sat 8 AM tempo', live:false },
-  ]},
+  location: { items:[] },
 };
 let curSearch = 'person';
 let searchLoaded = false;
@@ -2949,7 +2860,6 @@ function drawSearch(){
 drawWeek();
 drawSlots();
 drawChips();
-drawFeed();
 drawFreq();
 drawTotals();
 drawLogger();

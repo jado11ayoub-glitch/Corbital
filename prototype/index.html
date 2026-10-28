@@ -28,11 +28,6 @@
       <button class="on" data-m="in">Sign in</button>
       <button data-m="up">Create account</button>
     </div>
-    <div class="gfield" id="gf-name" style="display:none">
-      <label for="g-name">Display name</label>
-      <input id="g-name" placeholder="What friends see — e.g. Jad ⚡" maxlength="24" autocomplete="off">
-      <div class="hint">Can be anything (kept clean)</div>
-    </div>
     <div id="fp-head" style="display:none;text-align:center;margin-bottom:14px">
       <div style="font-weight:800;font-size:16px">Reset your password</div>
       <div class="sub">Type the email linked to your account and we'll send a 6-digit code</div>
@@ -66,14 +61,14 @@
     <button class="btn primary" id="g-go" onclick="authSubmit()">Sign in</button>
     <button class="btn small" id="g-forgot" onclick="startForgot()" style="width:100%;justify-content:center;margin-top:8px;background:none;border:none;color:var(--ink2)">Forgot password?</button>
     <button class="btn small" id="g-back" onclick="setAuthMode('in')" style="display:none;width:100%;justify-content:center;margin-top:8px;background:none;border:none;color:var(--ink2)">← Back to sign in</button>
-    <div class="demo">Demo friends to test with — usernames <b>maya</b>, <b>sam</b>, <b>dev</b>, <b>lena</b> (password <b>friends1</b>)</div>
+    <button class="btn small" id="g-guest" onclick="continueAsGuest()" style="width:100%;justify-content:center;margin-top:8px;background:none;border:none;color:var(--ink2)">Just trying Plannit? Continue as guest →</button>
   </div>
 </div>
 <div class="app">
 <header>
   <div class="brandrow">
     <div class="logo"><img src="logo-full.png" class="logo-full" alt="Corbits"></div>
-    <span class="pill">prototype v43</span>
+    <span class="pill">prototype v44</span>
     <div class="spacer"></div>
     <span style="position:relative;display:inline-block">
       <button class="iconbtn" title="Messages" onclick="openMessages()">💬</button>
@@ -192,7 +187,6 @@
     <button data-f="milestone">Milestone</button>
   </div>
   <div id="realfeed"></div>
-  <div id="feed"></div>
 </section>
 
 <!-- ================= ADD FRIENDS (opened from the feed) ================= -->
@@ -204,7 +198,7 @@
   <div class="card mecard" id="mecard"></div>
 
   <div class="eyebrow">Find friends</div>
-  <input id="fsearch" placeholder="Search by username — e.g. maya" style="width:100%;margin-bottom:10px" autocomplete="off">
+  <input id="fsearch" placeholder="Search by username" style="width:100%;margin-bottom:10px" autocomplete="off">
   <div class="card" id="fresults"><div class="sub">Type a username above to find people.</div></div>
 
   <div class="eyebrow">Requests</div>
