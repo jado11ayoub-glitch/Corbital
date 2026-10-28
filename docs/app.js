@@ -38,10 +38,9 @@ function load(key, fallback){
 
 /* ---------- main tabs ---------- */
 function showPanel(t){
-  const litTab = t === 'friends' ? 'frds' : t;
-  $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === litTab));
+  $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === t));
   $$('.panel').forEach(p => p.classList.toggle('on', p.id === 'p-' + t));
-  if (t === 'frds' && me) loadFriendsFeed();
+  if (t === 'frds' && me) { loadFriendsFeed(); drawFriendsTab(); }
   if (t === 'plannit' && me) { closePlannitDetail(); loadPlannitFeed(); }
   if (t === 'search' && me) { loadSearchData(); startSearchPoll(); } else { stopSearchPoll(); }
 }
@@ -1249,15 +1248,6 @@ function drawRecs(){
 }
 
 /* ---------- FRDS: add friend ---------- */
-function toggleAddFriend(){ showPanel('friends'); $('#fsearch').focus(); }
-function sendFriendReq(){
-  const n = $('#af-name').value.trim();
-  if (!n) { toast('Type a name or @handle first'); return; }
-  $('#af-name').value = '';
-  $('#addfriend').classList.remove('show');
-  toast(`Friend request sent to ${n} — they appear in your feed once they accept 🤝`);
-}
-
 /* ---------- real feed: what friends have actually posted to SCHD ---------- */
 /* shared by the FRIENDS feed and SEARCH -> Activity so a plan card looks
    and behaves identically everywhere it shows up */
