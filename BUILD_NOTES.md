@@ -5,9 +5,11 @@ notes" icon in the header opened this as a sheet; removed per request so
 testers/friends don't see it, but kept here so it can be pulled back up
 next time it's asked for).
 
-- **Overlap engine (PLANNIT):** auto-finding best common slots from
-  everyone's grids — flagged for a later session. Grid + colors are in;
-  the math isn't.
+- **Overlap engine (PLANNIT) — done:** the grid now surfaces the slot
+  with the most "yes" answers as a "🏆 Best overlap so far" banner above
+  the grid, and highlights that cell. Ties go to whichever slot also has
+  the next-most "maybe"s; still no auto-lock-in, people decide for
+  themselves once they see it.
 - **Location search:** currently canned places (YMCA, Fairview, Don Mills,
   Bayview). Needs: how locations get added to a network, and region vs.
   exact-place search rules. Marked TBD.

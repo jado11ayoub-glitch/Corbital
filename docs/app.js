@@ -2161,9 +2161,8 @@ async function submitNewGoal(){
    Feed-first: #pl-feed lists your plans (owned or accepted), a + FAB
    creates a new one (name + invite friends — each gets a Yes/No message,
    same pattern as an SCHD join request). Opening a plan shows one
-   real calendar week's grid; everyone's answers overlay so you can see
-   the overlap yourself — no auto "best slot" picker yet, on purpose,
-   same as the earlier "overlap engine" build note. */
+   real calendar week's grid; everyone's answers overlay, and the slot
+   with the most "yes" answers is auto-surfaced (see plannitBestSlot). */
 const PLANNIT_SLOTS = [8,10,12,14,16,18,20]; /* 2-hour blocks, 8am–8pm start times */
 const ANSWER_CLASS = { none:'s0', yes:'s1', no:'s2', maybe:'s3', depends:'s4' };
 const ANSWER_SYM = { none:'', yes:'✓', no:'✕', maybe:'?', depends:'◷' };
@@ -2336,8 +2335,8 @@ async function openPlannitDetailById(id){
   const ev = plannitFeedCache.find(e => e.id === id);
   activePlannitEvent = ev
     ? { id: ev.id, name: ev.name, owner: ev.owner, start_day: ev.start_day, range_type: ev.range_type,
-        is_tbd: ev.is_tbd, poll_closed: ev.poll_closed, cancelled: ev.cancelled }
-    : { id, name: 'Plan', owner: null, start_day: TODAY_IX, range_type: 'week', is_tbd: false, poll_closed: false, cancelled: false };
+        is_tbd: ev.is_tbd, poll_closed: ev.poll_closed, cancelled: ev.cancelled, member_count: ev.member_count }
+    : { id, name: 'Plan', owner: null, start_day: TODAY_IX, range_type: 'week', is_tbd: false, poll_closed: false, cancelled: false, member_count: 0 };
   $('#pl-feed-view').style.display = 'none';
   $('#pl-detail-view').style.display = 'block';
   $('#pl-fab').style.display = 'none';
@@ -2426,7 +2425,58 @@ function plannitUnitHeadHTML(ev, unitIx, granularity){
   return `${dow}<br><span class="mono" style="font-weight:400">${d.getDate()}</span>`;
 }
 
-function plannitCell(ev, u, slotIx){
+/* plain-text versions of the same unit labels, for the best-overlap banner */
+function plannitUnitLabelText(ev, unitIx, granularity){
+  if (granularity === 'biweek') {
+    const s = dayDate(ev.start_day + unitIx * 14);
+    const e = dayDate(Math.min(ev.start_day + unitIx * 14 + 13, plannitRangeEnd(ev.start_day, ev.range_type) - 1));
+    return `${s.toLocaleDateString('en-US',{month:'short',day:'numeric'})}–${e.toLocaleDateString('en-US',{day:'numeric'})}`;
+  }
+  const d = dayDate(ev.start_day + unitIx);
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+}
+function plannitSlotLabelText(slotIx, granularity){
+  if (granularity !== 'slot') return '';
+  const hr = PLANNIT_SLOTS[slotIx];
+  return `, ${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}`;
+}
+
+/* ---- overlap engine: find the cell with the most "yes" answers, so
+   people don't have to eyeball everyone's grid themselves. Ties go to
+   whichever slot also has the next-most "maybe"s, then earliest in the
+   grid. Needs at least one "yes" from someone to suggest anything. ---- */
+function plannitBestSlot(){
+  if (!plannitGridCache.length) return null;
+  const tally = {};
+  plannitGridCache.forEach(r => {
+    const key = r.day_offset + ':' + r.slot_index;
+    if (!tally[key]) tally[key] = { u: r.day_offset, slotIx: r.slot_index, yes: 0, maybe: 0, no: 0, depends: 0 };
+    if (tally[key][r.answer] !== undefined) tally[key][r.answer]++;
+  });
+  const cells = Object.values(tally);
+  let best = null, tiedCount = 0;
+  cells.forEach(t => {
+    if (t.yes === 0) return;
+    if (!best || t.yes > best.yes || (t.yes === best.yes && t.maybe > best.maybe)) { best = t; tiedCount = 1; }
+    else if (t.yes === best.yes && t.maybe === best.maybe) { tiedCount++; }
+  });
+  if (!best) return null;
+  return { ...best, tiedCount };
+}
+
+function drawPlannitBestSlot(ev, granularity){
+  const box = $('#pl-best-slot');
+  const best = plannitBestSlot();
+  if (!best) { box.style.display = 'none'; return null; }
+  const label = plannitUnitLabelText(ev, best.u, granularity) + plannitSlotLabelText(best.slotIx, granularity);
+  const total = ev.member_count || (best.yes + best.maybe + best.no + best.depends);
+  const tieNote = best.tiedCount > 1 ? ` (tied with ${best.tiedCount - 1} other slot${best.tiedCount > 2 ? 's' : ''})` : '';
+  box.innerHTML = `🏆 Best overlap so far: <b>${label}</b> — ${best.yes}${total ? ' of ' + total : ''} yes${tieNote}`;
+  box.style.display = '';
+  return best;
+}
+
+function plannitCell(ev, u, slotIx, best){
   const td = document.createElement('td');
   const cellAnswers = plannitGridCache.filter(r => r.day_offset === u && r.slot_index === slotIx);
   const mine = cellAnswers.find(r => r.member === me.username);
@@ -2438,6 +2488,7 @@ function plannitCell(ev, u, slotIx){
   b.title = cellAnswers.length
     ? cellAnswers.map(r => `${r.member_display}: ${r.answer}`).join(', ')
     : 'No answers yet';
+  if (best && best.u === u && best.slotIx === slotIx) td.classList.add('best-slot');
   if (!ev.cancelled) {
     b.onclick = () => paintPlannitAnswer(u, slotIx);
   } else {
@@ -2460,6 +2511,7 @@ async function drawPlannitGrid(){
 
   const granularity = plannitGranularity(ev.range_type);
   const unitCount = plannitUnitCount(ev.start_day, ev.range_type);
+  const best = drawPlannitBestSlot(ev, granularity);
   const t = $('#availgrid');
   t.innerHTML = '';
 
@@ -2472,7 +2524,7 @@ async function drawPlannitGrid(){
       t.appendChild(headTr);
       const tr = document.createElement('tr');
       tr.innerHTML = `<th class="rowlab">Available</th>`;
-      for (let i = 0; i < chunkLen; i++) tr.appendChild(plannitCell(ev, base + i, 0));
+      for (let i = 0; i < chunkLen; i++) tr.appendChild(plannitCell(ev, base + i, 0, best));
       t.appendChild(tr);
     }
     return;
@@ -2489,7 +2541,7 @@ async function drawPlannitGrid(){
     tr.innerHTML = granularity === 'slot'
       ? `<th class="rowlab mono">${fmtT(hr).replace(':00 ', '')}–${fmtT(hr + 2).replace(':00 ', '')}</th>`
       : `<th class="rowlab">Available</th>`;
-    for (let u = 0; u < unitCount; u++) tr.appendChild(plannitCell(ev, u, slotIx));
+    for (let u = 0; u < unitCount; u++) tr.appendChild(plannitCell(ev, u, slotIx, best));
     t.appendChild(tr);
   });
 }
